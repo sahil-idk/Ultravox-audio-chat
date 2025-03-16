@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 // Configure environment variables or use them directly in production
-const ULTRAVOX_API_KEY = process.env.ULTRAVOX_API_KEY || 'dSn7oxDz.oUsfzT4pnjJbCl4keqq6DWlAlT23Ip0t';
+const ULTRAVOX_API_KEY = process.env.ULTRAVOX_API_KEY || 'PeSlPVif.Tx0xz9NLMDJ7INEluyiIfEDhuVw7KTBN';
 
 // Fetch available voices from the Ultravox API
 export async function GET(request: NextRequest) {

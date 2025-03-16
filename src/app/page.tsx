@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { ThemeToggle } from '@/components/toggle';
 import { UltravoxSession, UltravoxSessionStatus } from 'ultravox-client';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { VoiceTabs } from '@/components/voice-tabs';
 
 // Voice interface from Ultravox API
 interface UltravoxVoice {
@@ -58,6 +58,14 @@ const getVoiceColor = (voiceName: string): string => {
   return colors[colorIndex];
 };
 
+// Connection states
+const ConnectionState = {
+  IDLE: 'idle',
+  CONNECTING: 'connecting',
+  CONNECTED: 'connected',
+  ERROR: 'error'
+};
+
 export default function AudioVisualizer() {
   const [isListening, setIsListening] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
@@ -68,6 +76,10 @@ export default function AudioVisualizer() {
   const [availableVoices, setAvailableVoices] = useState<UltravoxVoice[]>([]);
   const [botPersonas, setBotPersonas] = useState<BotPersona[]>([]);
   const [isLoadingVoices, setIsLoadingVoices] = useState(true);
+  
+  // Connection state management
+  const [connectionState, setConnectionState] = useState(ConnectionState.IDLE);
+  const [connectionProgress, setConnectionProgress] = useState(0);
   
   // Ultravox state
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -86,6 +98,7 @@ export default function AudioVisualizer() {
   const uvSessionRef = useRef<UltravoxSession | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const transcriptContainerRef = useRef<HTMLDivElement | null>(null);
+  const connectionTimerRef = useRef<NodeJS.Timeout | null>(null);
   
   const SAMPLE_RATE = 16000; // Match with Ultravox requirements
   
@@ -119,9 +132,12 @@ export default function AudioVisualizer() {
         if (uvSessionRef.current) {
           uvSessionRef.current.leaveCall();
         }
+        if (connectionTimerRef.current) {
+          clearInterval(connectionTimerRef.current);
+        }
       };
     }
-  }, []);
+  },[]);
 
   // Fetch available voices from Ultravox API
   const fetchVoices = async () => {
@@ -139,6 +155,34 @@ export default function AudioVisualizer() {
       const data = await response.json();
       
       // Ensure the data is in the expected format
+      // Find default voice - prefer Elihiz/Emily
+      const findDefaultVoice = (voices: UltravoxVoice[]) => {
+        // First try to find Elihiz
+        const elihizVoice = voices.find(voice => 
+          voice.name?.toLowerCase().includes('elihiz')
+        );
+        
+        if (elihizVoice) return elihizVoice.voiceId;
+        
+        // Next try for Emily (might be a similar female voice)
+        const emilyVoice = voices.find(voice => 
+          voice.name?.toLowerCase().includes('emily')
+        );
+        
+        if (emilyVoice) return emilyVoice.voiceId;
+        
+        // Fall back to first female voice or just first voice
+        const femaleVoice = voices.find(voice => 
+          voice.name?.toLowerCase().includes('female') || 
+          voice.description?.toLowerCase().includes('female')
+        );
+        
+        if (femaleVoice) return femaleVoice.voiceId;
+        
+        // Last resort: first available voice
+        return voices.length > 0 ? voices[0].voiceId : '';
+      };
+        
       if (Array.isArray(data)) {
         setAvailableVoices(data);
         
@@ -146,7 +190,7 @@ export default function AudioVisualizer() {
         const personas: BotPersona[] = data.map((voice: UltravoxVoice) => {
           // Choose a system prompt based on the voice name pattern
           let prompt = systemPrompts.general;
-          const voiceLower = voice.name.toLowerCase();
+          const voiceLower = voice.name?.toLowerCase() || '';
           
           if (voiceLower.includes('customer') || voiceLower.includes('service')) {
             prompt = systemPrompts.customer;
@@ -158,33 +202,21 @@ export default function AudioVisualizer() {
           
           return {
             id: voice.voiceId,
-            name: voice.name,
+            name: voice.name || 'Unknown Voice',
             systemPrompt: prompt,
             voice: voice.voiceId,
-            color: getVoiceColor(voice.name),
+            color: getVoiceColor(voice.name || ''),
             icon: <Bot className="h-4 w-4" />,
             description: voice.description || `Voice assistant using ${voice.name}`
           };
         });
         
-        // Add a default persona if none are available
-        if (personas.length === 0) {
-          personas.push({
-            id: 'default',
-            name: 'Default Assistant',
-            systemPrompt: systemPrompts.general,
-            voice: "Mark", // Fallback to Mark as in original code
-            color: "bg-blue-500",
-            icon: <Bot className="h-4 w-4" />,
-            description: "A general-purpose assistant that can help with a variety of topics."
-          });
-        }
-        
         setBotPersonas(personas);
         
-        // Set the default selected voice
-        if (personas.length > 0 && !selectedVoice) {
-          setSelectedVoice(personas[0].id);
+        // Set default voice to Elihiz or similar female voice
+        const defaultVoiceId = findDefaultVoice(data);
+        if (defaultVoiceId) {
+          setSelectedVoice(defaultVoiceId);
         }
       } else {
         // If the API doesn't return an array, use fallback personas
@@ -227,15 +259,6 @@ export default function AudioVisualizer() {
         color: "bg-red-600",
         icon: <Bot className="h-4 w-4" />,
         description: "A technical support specialist."
-      },
-      {
-        id: 'Daniel',
-        name: 'Daniel',
-        systemPrompt: systemPrompts.creative,
-        voice: "Daniel",
-        color: "bg-purple-600",
-        icon: <Bot className="h-4 w-4" />,
-        description: "A creative assistant for brainstorming and writing."
       }
     ];
     
@@ -294,6 +317,7 @@ export default function AudioVisualizer() {
       console.error("Error creating Ultravox call:", error);
       setErrorMessage(error instanceof Error ? error.message : "Failed to create Ultravox call");
       setErrorDialogOpen(true);
+      setConnectionState(ConnectionState.ERROR);
       return null;
     } finally {
       setIsLoading(false);
@@ -303,6 +327,32 @@ export default function AudioVisualizer() {
   // Initialize and start Ultravox session
   const initializeUltravoxSession = async () => {
     try {
+      // Set connection state to CONNECTING
+      setConnectionState(ConnectionState.CONNECTING);
+      setConnectionProgress(0);
+      
+      // Start progress animation with improved timing
+      // First jump to 20% quickly to show immediate feedback
+      setConnectionProgress(20);
+      
+      // Then continue with smoother progression
+      connectionTimerRef.current = setInterval(() => {
+        setConnectionProgress(prev => {
+          if (prev < 40) {
+            // Faster in the beginning (20% to 40%)
+            return Math.min(40, prev + Math.random() * 3 + 1);
+          } else if (prev < 70) {
+            // Medium speed in the middle (40% to 70%)
+            return Math.min(70, prev + Math.random() * 2 + 0.5);
+          } else {
+            // Slow down as we approach 95% (70% to 95%)
+            const remainingPercentage = 95 - prev;
+            const increment = Math.max(0.2, remainingPercentage * 0.05);
+            return Math.min(95, prev + increment);
+          }
+        });
+      }, 150);
+      
       // Clean up any existing session
       if (uvSessionRef.current) {
         await uvSessionRef.current.leaveCall();
@@ -311,7 +361,14 @@ export default function AudioVisualizer() {
 
       // Create a new session
       const url = await createUltravoxSession();
-      if (!url) return false;
+      if (!url) {
+        if (connectionTimerRef.current) {
+          clearInterval(connectionTimerRef.current);
+          connectionTimerRef.current = null;
+        }
+        setConnectionState(ConnectionState.ERROR);
+        return false;
+      }
       
       // Initialize the Ultravox session
       const session = new UltravoxSession({
@@ -327,16 +384,28 @@ export default function AudioVisualizer() {
         if (session.status === UltravoxSessionStatus.LISTENING || 
             session.status === UltravoxSessionStatus.THINKING || 
             session.status === UltravoxSessionStatus.SPEAKING) {
+          
+          // Successfully connected
+          if (connectionState !== ConnectionState.CONNECTED) {
+            // We're connected! Stop the progress timer and complete the progress bar
+            if (connectionTimerRef.current) {
+              clearInterval(connectionTimerRef.current);
+              connectionTimerRef.current = null;
+            }
+            setConnectionProgress(100);
+            setConnectionState(ConnectionState.CONNECTED);
+          }
+          
           setIsConnected(true);
-        } else {
+        } else if (session.status === UltravoxSessionStatus.DISCONNECTED) {
           setIsConnected(false);
+          setAudioLevel(0);
+          setConnectionState(ConnectionState.IDLE);
         }
         
         // When agent is speaking, start audio visualization
         if (session.status === UltravoxSessionStatus.SPEAKING) {
           analyzeAudio();
-        } else if (session.status === UltravoxSessionStatus.DISCONNECTED) {
-          setAudioLevel(0);
         }
       });
       
@@ -408,14 +477,21 @@ export default function AudioVisualizer() {
       console.error("Error initializing Ultravox session:", error);
       setErrorMessage(error instanceof Error ? error.message : "Failed to initialize Ultravox session");
       setErrorDialogOpen(true);
+      setConnectionState(ConnectionState.ERROR);
+      
+      // Clear connection progress timer
+      if (connectionTimerRef.current) {
+        clearInterval(connectionTimerRef.current);
+        connectionTimerRef.current = null;
+      }
+      
       return false;
     }
   };
 
   const handleMicToggle = async () => {
-    if (isListening) {
-      stopMicrophone();
-    } else {
+    if (!isConnected) {
+      // Start a new session
       await startMicrophone();
     }
   };
@@ -468,6 +544,7 @@ export default function AudioVisualizer() {
       console.error("Error accessing microphone:", error);
       setErrorMessage(error instanceof Error ? error.message : "Failed to access microphone");
       setErrorDialogOpen(true);
+      setConnectionState(ConnectionState.ERROR);
     }
   };
 
@@ -550,6 +627,14 @@ export default function AudioVisualizer() {
       setTranscript("");
       setConversation([]);
       setAudioLevel(0);
+      setConnectionState(ConnectionState.IDLE);
+      setConnectionProgress(0);
+      
+      // Clear any connection timers
+      if (connectionTimerRef.current) {
+        clearInterval(connectionTimerRef.current);
+        connectionTimerRef.current = null;
+      }
       
     } catch (error) {
       console.error("Error ending session:", error);
@@ -580,15 +665,14 @@ export default function AudioVisualizer() {
   // Get the current bot
   const currentBot = botPersonas.find(bot => bot.id === selectedVoice) || botPersonas[0];
 
-  // Get indicator color based on selected bot
+  // Use red for the indicator color to match the design
   const getIndicatorColor = () => {
-    return currentBot?.color || "bg-blue-500";
+    return "bg-red-600";
   };
 
   // Get box shadow color
   const getBoxShadowColor = (opacity = 0.4) => {
     const botColor = (currentBot?.color || "bg-blue-500").replace('bg-', '');
-    let rgbColor;
     
     switch(botColor) {
       case 'blue-500':
@@ -618,6 +702,10 @@ export default function AudioVisualizer() {
 
   // Display status text based on session state
   const getStatusText = () => {
+    if (connectionState === ConnectionState.CONNECTING) {
+      return `Connecting to ${currentBot?.name || 'Assistant'}...`;
+    }
+    
     if (!isConnected) return "Click microphone to start";
     
     switch(sessionState) {
@@ -630,67 +718,58 @@ export default function AudioVisualizer() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-background text-foreground">
-      <Card className="w-full max-w-md">
+    <div className="min-h-screen flex flex-col items-center justify-center p-0 bg-black text-white">
+      <Card className="w-full max-w-md bg-black border-gray-800 shadow-2xl">
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="flex items-center gap-2">
-            {currentBot?.icon || <Bot className="h-4 w-4" />}
-            <span>{currentBot?.name || 'Assistant'}</span>
+            <Bot className="h-5 w-5" />
+            <span>Voice Assistant</span>
           </CardTitle>
-          <div className="flex items-center gap-3">
-            <Select 
-              value={selectedVoice} 
-              onValueChange={handleVoiceChange} 
-              disabled={isLoadingVoices || isConnected}
-            >
-              <SelectTrigger className="w-36">
-                <SelectValue placeholder={isLoadingVoices ? "Loading..." : "Select voice"} />
-              </SelectTrigger>
-              <SelectContent>
-                {botPersonas.map(bot => (
-                  <SelectItem key={bot.id} value={bot.id}>
-                    <div className="flex items-center gap-2">
-                      {bot.icon}
-                      <span>{bot.name}</span>
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <div className="flex items-center">
             <ThemeToggle />
           </div>
         </CardHeader>
         <CardContent className="flex flex-col items-center space-y-6">
+          {/* Voice Tabs */}
+          <VoiceTabs 
+            voices={botPersonas}
+            selectedVoiceId={selectedVoice}
+            onSelectVoice={handleVoiceChange}
+            disabled={isLoadingVoices || connectionState === ConnectionState.CONNECTING || isConnected}
+            loading={connectionState === ConnectionState.CONNECTING}
+          />
+          
           {/* Indicator Circle */}
           <div className="relative h-48 w-48 flex items-center justify-center">
             {/* Outer reference circle */}
-            <div className="absolute w-36 h-36 rounded-full border border-muted" />
+            <div className="absolute w-36 h-36 rounded-full border border-gray-700" />
             
             {/* Active indicator with motion */}
             <motion.div 
-              className={`rounded-full ${getIndicatorColor()} flex items-center justify-center`}
+              className="rounded-full bg-red-600 flex items-center justify-center"
               animate={{ 
                 width: `${currentSize}px`,
                 height: `${currentSize}px`,
-                opacity: isListening || sessionState === "speaking" ? 0.85 : 0.5,
-                boxShadow: isListening || sessionState === "speaking" ? 
-                  `0 0 ${30 + (audioLevel * 20)}px ${getBoxShadowColor(getGlowIntensity())}` : 'none'
+                opacity: isListening || sessionState === "speaking" ? 0.85 : 0.5
               }}
               transition={{ duration: 0.1 }}
             >
-              {isLoading ? (
-                <Loader2 size={28} className="text-white animate-spin" />
-              ) : isListening || sessionState === "speaking" ? (
-                <div className="text-white">
-                  {sessionState === "speaking" ? (
-                    <Volume2 size={28} />
-                  ) : (
-                    <Mic size={28} />
-                  )}
-                </div>
-              ) : null}
+              {/* No loader in the center indicator */}
             </motion.div>
           </div>
+          
+          {/* Progress bar for connection state */}
+          {connectionState === ConnectionState.CONNECTING && (
+            <div className="w-full h-2 bg-gray-800 rounded-full overflow-hidden mt-2">
+              <motion.div 
+                className="h-full bg-red-600"
+                style={{ 
+                  width: `${connectionProgress}%`,
+                  transition: 'width 0.3s ease-out'
+                }}
+              />
+            </div>
+          )}
           
           {/* Audio level indicator */}
           <div className="w-full h-1 bg-muted rounded-full overflow-hidden">
@@ -708,31 +787,21 @@ export default function AudioVisualizer() {
             ref={transcriptContainerRef}
             className="w-full bg-muted/30 p-3 rounded-md h-48 overflow-y-auto scrollbar-thin scrollbar-thumb-rounded scrollbar-thumb-gray-300"
           >
-            {conversation.map((message, index) => (
-              <div 
-                key={index} 
-                className={`p-2 rounded-lg max-w-[85%] mb-2 ${
-                  message.role === 'user' 
-                    ? 'ml-auto bg-blue-500 text-white' 
-                    : 'bg-gray-200 dark:bg-gray-700'
-                }`}
+            {/* Only show the latest assistant message, not a conversation */}
+            {transcript ? (
+              <motion.p
+                initial={{ opacity: 0.5 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.5 }}
+                className="text-sm"
               >
-                <p className="text-sm">{message.text}</p>
-              </div>
-            ))}
-            {transcript && (
-              <div className="p-2 rounded-lg max-w-[85%] mb-2 bg-gray-200 dark:bg-gray-700">
-                <motion.p
-                  initial={{ opacity: 0.5 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ duration: 0.5 }}
-                  className="text-sm"
-                >
-                  {transcript}
-                </motion.p>
-              </div>
-            )}
-            {!transcript && conversation.length === 0 && (
+                {transcript}
+              </motion.p>
+            ) : conversation.length > 0 ? (
+              <p className="text-sm">
+                {conversation.filter(msg => msg.role === 'assistant').pop()?.text || ''}
+              </p>
+            ) : (
               <div className="h-full flex items-center justify-center">
                 <p className="text-sm text-muted-foreground text-center">
                   {isConnected 
@@ -752,39 +821,26 @@ export default function AudioVisualizer() {
             </div>
           )}
           
-          {/* Mic and End Call Buttons */}
-          <div className="flex w-full justify-center gap-4">
+          {/* Single Mic Button for start/end */}
+          <div className="flex w-full justify-center">
             <Button 
-              onClick={handleMicToggle}
-              variant={isListening ? "destructive" : "default"}
+              onClick={isConnected ? endSession : handleMicToggle}
+              variant={isConnected ? "destructive" : "default"}
               size="lg"
-              className={`h-16 w-16 rounded-full ${!isListening ? getIndicatorColor() : ''}`}
-              disabled={isLoading}
+              className="h-16 w-16 rounded-full bg-red-600 hover:bg-red-700"
+              disabled={connectionState === ConnectionState.CONNECTING}
             >
-              {isLoading ? (
+              {connectionState === ConnectionState.CONNECTING ? (
                 <Loader2 className="h-6 w-6 animate-spin" />
-              ) : isListening ? (
-                <X className="h-6 w-6" />
               ) : (
                 <Mic className="h-6 w-6" />
               )}
             </Button>
-            
-            {isConnected && (
-              <Button 
-                onClick={endSession}
-                variant="destructive"
-                size="lg"
-                className="h-16 w-16 rounded-full"
-              >
-                <Phone className="h-6 w-6 transform rotate-135" />
-              </Button>
-            )}
           </div>
           
           {/* Status Text */}
           <div className="w-full text-center text-sm text-muted-foreground">
-            {getStatusText()}
+            {isConnected ? "Click microphone to end" : "Click microphone to start"}
           </div>
         </CardContent>
       </Card>
