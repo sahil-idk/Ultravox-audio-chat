@@ -1,24 +1,16 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
-import { Play, Mic, X, Volume2, Loader2, Music } from 'lucide-react';
+import { Play, Mic, X, Volume2, Loader2, Music, Info } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ThemeToggle } from '@/components/toggle';
+import { UltravoxSession, UltravoxSessionStatus, Medium } from 'ultravox-client';
 
 type TrackId = 'gardens' | 'kugelsicher' | 'spinningHead';
 type AudioSourceType = 'microphone' | 'playback' | null;
-
-// Backend server URLs - change these to match your deployment
-const BACKEND_URL = "https://fast-api-uv-backend.onrender.com";
-const WS_URL = "wss://fast-api-uv-backend.onrender.com";
-
-// Match audio sample rate with the backend
-const SAMPLE_RATE = 16000;
 
 export default function AudioVisualizer() {
   const [isListening, setIsListening] = useState(false);
@@ -30,12 +22,14 @@ export default function AudioVisualizer() {
   
   // Ultravox state
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [sessionState, setSessionState] = useState("idle"); // idle, listening, thinking, speaking
+  const [joinUrl, setJoinUrl] = useState<string | null>(null);
+  const [sessionState, setSessionState] = useState<string>("idle");
   const [isConnected, setIsConnected] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [finalTranscript, setFinalTranscript] = useState("");
   const [error, setError] = useState<string | null>(null);
   
+  // Refs
   const micStreamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -43,14 +37,10 @@ export default function AudioVisualizer() {
   const frameRef = useRef<number | null>(null);
   const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
   const prevLevelRef = useRef<number>(0);
-  const websocketRef = useRef<WebSocket | null>(null);
-  const processorNodeRef = useRef<ScriptProcessorNode | null>(null);
+  const uvSessionRef = useRef<UltravoxSession | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   
-  // For audio output from Ultravox
-  const audioOutputContextRef = useRef<AudioContext | null>(null);
-  const audioQueueRef = useRef<ArrayBuffer[]>([]);
-  const isPlayingRef = useRef<boolean>(false);
+  const SAMPLE_RATE = 16000; // Match with Ultravox requirements
   
   const audioTracks = {
     gardens: {
@@ -78,25 +68,19 @@ export default function AudioVisualizer() {
   
   const sampleAudioUrl = audioTracks[selectedTrack].path;
 
+  // Initialize audio context and analyzer
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
       
       audioContextRef.current = new AudioContext({
-        sampleRate: SAMPLE_RATE // Match the sample rate with backend configuration
+        sampleRate: SAMPLE_RATE
       });
       analyserRef.current = audioContextRef.current.createAnalyser();
       analyserRef.current.fftSize = 256;
       analyserRef.current.smoothingTimeConstant = 0.7;
       
-      // For UI click sounds
       audioRef.current = new Audio("/mixkit-select-click-1109.wav");
-      
-      // Initialize audio output context for ultravox audio
-      audioOutputContextRef.current = new AudioContext({
-        sampleRate: SAMPLE_RATE
-      });
       
       return () => {
         if (frameRef.current) {
@@ -108,94 +92,169 @@ export default function AudioVisualizer() {
         if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
           audioContextRef.current.close();
         }
-        if (audioOutputContextRef.current && audioOutputContextRef.current.state !== 'closed') {
-          audioOutputContextRef.current.close();
-        }
-        if (websocketRef.current) {
-          websocketRef.current.close();
-        }
-        if (processorNodeRef.current) {
-          processorNodeRef.current.disconnect();
+        if (uvSessionRef.current) {
+          uvSessionRef.current.leaveCall();
         }
       };
     }
   }, []);
 
-  // Process audio queue for Ultravox output
-  useEffect(() => {
-    const playNextAudio = async () => {
-      if (audioQueueRef.current.length === 0 || isPlayingRef.current) {
-        return;
+  // Create Ultravox session
+  const createUltravoxSession = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      const response = await fetch('/api/create-ultravox-call', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          systemPrompt: "You are a helpful AI assistant talking to a user. Keep your responses short, friendly and helpful.",
+          voice: "Mark",
+          temperature: 0.7
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to create Ultravox call: ${response.status} ${response.statusText}`);
       }
       
-      isPlayingRef.current = true;
-      const audioData = audioQueueRef.current.shift();
+      const data = await response.json();
       
-      if (!audioData) return;
-      
-      try {
-        // Create an audio context if we don't have one
-        if (!audioOutputContextRef.current || audioOutputContextRef.current.state === 'closed') {
-          audioOutputContextRef.current = new AudioContext({
-            sampleRate: SAMPLE_RATE
-          });
-        }
-        
-        // Resume the audio context if it's suspended
-        if (audioOutputContextRef.current.state === 'suspended') {
-          await audioOutputContextRef.current.resume();
-        }
-        
-        // Decode the audio data
-        const audioBuffer = await audioOutputContextRef.current.decodeAudioData(audioData);
-        
-        const source = audioOutputContextRef.current.createBufferSource();
-        source.buffer = audioBuffer;
-        source.connect(audioOutputContextRef.current.destination);
-        
-        source.onended = () => {
-          isPlayingRef.current = false;
-          
-          // Try to play next audio in queue
-          if (audioQueueRef.current.length > 0) {
-            setTimeout(playNextAudio, 0);
-          }
-          // If we're not speaking anymore, update UI
-          else if (sessionState === "speaking") {
-            setSessionState("idle");
-          }
-        };
-        
-        source.start();
-        setAudioSource('playback');
-        setAudioLevel(prevLevelRef.current); // Maintain current volume level
-      } catch (error) {
-        console.error("Error playing audio:", error);
-        isPlayingRef.current = false;
-        
-        // Try to play next chunk even if this one failed
-        if (audioQueueRef.current.length > 0) {
-          setTimeout(playNextAudio, 0);
-        }
+      if (!data.joinUrl) {
+        throw new Error("Invalid response: missing joinUrl");
       }
-    };
-
-    // Start playing if we have audio in queue
-    if (audioQueueRef.current.length > 0 && !isPlayingRef.current) {
-      playNextAudio();
+      
+      setJoinUrl(data.joinUrl);
+      setSessionId(data.callId);
+      
+      return data.joinUrl;
+    } catch (error) {
+      console.error("Error creating Ultravox call:", error);
+      setError(error instanceof Error ? error.message : "Failed to create Ultravox call");
+      return null;
+    } finally {
+      setIsLoading(false);
     }
-  }, [audioQueueRef.current.length, sessionState]);
+  };
+
+  // Initialize and start Ultravox session
+  const initializeUltravoxSession = async () => {
+    try {
+      // Clean up any existing session
+      if (uvSessionRef.current) {
+        await uvSessionRef.current.leaveCall();
+        uvSessionRef.current = null;
+      }
+
+      // Create a new session
+      const url = await createUltravoxSession();
+      if (!url) return false;
+      
+      // Initialize the Ultravox session
+      const session = new UltravoxSession({
+        experimentalMessages: new Set(['debug'])
+      });
+      
+      // Set up event listeners
+      session.addEventListener('status', (event) => {
+        console.log('Session status changed:', session.status);
+        setSessionState(session.status);
+        
+        // Update UI based on status
+        if (session.status === UltravoxSessionStatus.LISTENING || 
+            session.status === UltravoxSessionStatus.THINKING || 
+            session.status === UltravoxSessionStatus.SPEAKING) {
+          setIsConnected(true);
+        } else {
+          setIsConnected(false);
+        }
+        
+        // Update audio source when agent is speaking
+        if (session.status === UltravoxSessionStatus.SPEAKING) {
+          setAudioSource('playback');
+          analyzeAudio();
+        } else if (session.status === UltravoxSessionStatus.DISCONNECTED) {
+          setAudioSource(null);
+          setAudioLevel(0);
+        }
+      });
+      
+      // Set up transcript listener for real-time streaming updates
+      session.addEventListener('transcripts', (event) => {
+        const transcripts = session.transcripts;
+        
+        if (transcripts.length > 0) {
+          // Find the most recent agent transcript
+          const agentTranscripts = transcripts.filter(t => t.speaker === 'agent');
+          
+          if (agentTranscripts.length > 0) {
+            const latestTranscript = agentTranscripts[agentTranscripts.length - 1];
+            
+            // Update current transcript
+            setTranscript(latestTranscript.text);
+            
+            // When final, move to finalTranscript
+            if (latestTranscript.isFinal) {
+              setFinalTranscript(prev => {
+                return prev ? `${prev}\n${latestTranscript.text}` : latestTranscript.text;
+              });
+              setTranscript("");
+            }
+          }
+          
+          // Find the most recent user transcript
+          const userTranscripts = transcripts.filter(t => t.speaker === 'user');
+          if (userTranscripts.length > 0) {
+            const latestUserTranscript = userTranscripts[userTranscripts.length - 1];
+            if (latestUserTranscript.isFinal) {
+              setFinalTranscript(prev => {
+                return prev ? `${prev}\nYou: ${latestUserTranscript.text}` : `You: ${latestUserTranscript.text}`;
+              });
+            }
+          }
+        }
+      });
+      
+      // Set up debug message listener
+      session.addEventListener('experimental_message', (event) => {
+        console.log('Experimental message:', (event as any).message);
+      });
+      
+      // Set up data message listener 
+      session.addEventListener('data_message', (event) => {
+        console.log('Data message:', (event as any).message);
+      });
+
+      // Store the session
+      uvSessionRef.current = session;
+      
+      // Join the call
+      session.joinCall(url);
+      
+      return true;
+    } catch (error) {
+      console.error("Error initializing Ultravox session:", error);
+      setError(error instanceof Error ? error.message : "Failed to initialize Ultravox session");
+      return false;
+    }
+  };
 
   const startMicrophone = async () => {
     try {
+      // If playing sample audio, stop it
       if (isPlaying) {
         stopAudio();
       }
       
+      // Resume audio context if suspended
       if (audioContextRef.current?.state === 'suspended') {
         await audioContextRef.current.resume();
       }
       
+      // Request microphone access
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
           sampleRate: SAMPLE_RATE,
@@ -209,51 +268,24 @@ export default function AudioVisualizer() {
       
       micStreamRef.current = stream;
       
-      if (audioContextRef.current && analyserRef.current) {
-        const source = audioContextRef.current.createMediaStreamSource(stream);
-        source.connect(analyserRef.current);
-        
-        // If not connected to Ultravox yet, initialize the session
-        if (!sessionId) {
-          await initializeUltravoxSession();
-        } else if (!isConnected && sessionId) {
-          // If we have a session ID but not connected, try to reconnect
-          connectWebSocket(sessionId);
+      if (!audioContextRef.current || !analyserRef.current) {
+        throw new Error("Audio context not initialized");
+      }
+      
+      const source = audioContextRef.current.createMediaStreamSource(stream);
+      source.connect(analyserRef.current);
+      
+      // If not connected to Ultravox, initialize
+      if (!uvSessionRef.current || uvSessionRef.current.status === UltravoxSessionStatus.DISCONNECTED) {
+        const success = await initializeUltravoxSession();
+        if (!success) {
+          throw new Error("Failed to initialize Ultravox session");
         }
-
-        // Clean up old processor node if exists
-        if (processorNodeRef.current) {
-          processorNodeRef.current.disconnect();
+      } else {
+        // If in IDLE state, ensure microphone is unmuted
+        if (uvSessionRef.current.isMicMuted) {
+          uvSessionRef.current.unmuteMic();
         }
-
-        // Set up audio processing for sending to Ultravox
-        const processorNode = audioContextRef.current.createScriptProcessor(4096, 1, 1);
-        processorNodeRef.current = processorNode;
-        
-        processorNode.onaudioprocess = (e) => {
-          if (websocketRef.current && 
-              websocketRef.current.readyState === WebSocket.OPEN && 
-              !(websocketRef.current as any).paused) {
-            const inputData = e.inputBuffer.getChannelData(0);
-            
-            // Convert float32 to int16
-            const int16Data = new Int16Array(inputData.length);
-            for (let i = 0; i < inputData.length; i++) {
-              int16Data[i] = Math.max(-32768, Math.min(32767, Math.floor(inputData[i] * 32768)));
-            }
-            
-            // Send audio data as bytes
-            try {
-              websocketRef.current.send(int16Data.buffer);
-            } catch (err) {
-              console.error("Error sending audio data:", err);
-            }
-          }
-        };
-
-        // Connect the processor node
-        source.connect(processorNode);
-        processorNode.connect(audioContextRef.current.destination);
       }
       
       setIsListening(true);
@@ -262,7 +294,6 @@ export default function AudioVisualizer() {
       analyzeAudio();
     } catch (error) {
       console.error("Error accessing microphone:", error);
-      alert("Could not access microphone. Please check permissions.");
       setError(error instanceof Error ? error.message : "Failed to access microphone");
     }
   };
@@ -273,9 +304,11 @@ export default function AudioVisualizer() {
       micStreamRef.current = null;
     }
     
-    if (processorNodeRef.current) {
-      processorNodeRef.current.disconnect();
-      processorNodeRef.current = null;
+    // Mute microphone in Ultravox session if connected
+    if (uvSessionRef.current && 
+        uvSessionRef.current.status !== UltravoxSessionStatus.DISCONNECTED && 
+        !uvSessionRef.current.isMicMuted) {
+      uvSessionRef.current.muteMic();
     }
     
     setIsListening(false);
@@ -410,194 +443,51 @@ export default function AudioVisualizer() {
     }
   };
 
-  // Initialize a new Ultravox session
-  const initializeUltravoxSession = async () => {
-    try {
-      console.log("Initializing Ultravox session...");
-      setIsLoading(true);
-      
-      const requestBody = {
-        system_prompt: "You are a helpful AI assistant talking to a user through a web UI. Be concise and friendly in your responses.",
-        temperature: 0.7,
-        user_speaks_first: true,
-        voice: "Mark"  // Including voice parameter explicitly
-      };
-      
-      console.log("Request payload:", JSON.stringify(requestBody, null, 2));
-      
-      const response = await fetch(`${BACKEND_URL}/api/create-call`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(requestBody)
-      });
-      
-      console.log("Response status:", response.status);
-      
-      if (!response.ok) {
-        throw new Error(`Failed to create session: ${response.status} ${response.statusText}`);
-      }
-      
-      const data = await response.json();
-      
-      if (!data.session_id) {
-        throw new Error("Invalid response format from server - missing session_id");
-      }
-      
-      setSessionId(data.session_id);
-      console.log("Session created successfully with ID:", data.session_id);
-      
-      // Connect to the WebSocket with the new session ID
-      connectWebSocket(data.session_id);
-      
-    } catch (error) {
-      console.error("Error initializing Ultravox session:", error);
-      setError(error instanceof Error ? error.message : "Failed to initialize voice session");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Connect to the WebSocket backend
-  const connectWebSocket = (sessionId: string) => {
-    console.log(`Connecting to WebSocket for session ${sessionId}...`);
-    
-    // Close existing connection if any
-    if (websocketRef.current) {
-      console.log("Closing existing WebSocket connection");
-      websocketRef.current.close();
-    }
-    
-    const wsUrl = `${WS_URL}/ws/${sessionId}`;
-    console.log(`WebSocket URL: ${wsUrl}`);
-    
-    const ws = new WebSocket(wsUrl);
-    ws.binaryType = "arraybuffer"; // Important for binary audio data
-    
-    ws.onopen = () => {
-      console.log(`WebSocket connection successfully established for session ${sessionId}`);
-      setIsConnected(true);
-      setError(null);
-      (ws as any).paused = false; // Add a property to track if we're pausing audio
-    };
-    
-    ws.onmessage = async (event) => {
-      // Handle binary data (audio)
-      if (event.data instanceof ArrayBuffer) {
-        console.log(`Received audio chunk: ${event.data.byteLength} bytes`);
-        try {
-          // Clone the buffer before pushing to queue to prevent issues
-          const clonedBuffer = event.data.slice(0);
-          audioQueueRef.current.push(clonedBuffer);
-          
-          // Update UI state
-          if (sessionState !== "speaking") {
-            setSessionState("speaking");
-          }
-        } catch (error) {
-          console.error("Error processing audio data:", error);
-        }
-      } 
-      // Handle JSON messages
-      else {
-        try {
-          const message = JSON.parse(event.data);
-          console.log("Received WebSocket message:", message);
-          
-          switch (message.type) {
-            case "connection":
-              console.log("Connection status:", message.status);
-              setIsConnected(message.status === "connected");
-              if (message.state) {
-                setSessionState(message.state);
-              }
-              break;
-              
-            case "state":
-              console.log("State changed:", message.state);
-              setSessionState(message.state);
-              break;
-              
-            case "transcript":
-              console.log("Transcript update:", message.text, "final:", message.final);
-              setTranscript(message.text);
-              if (message.final) {
-                setFinalTranscript(prev => prev + "\n" + message.text);
-              }
-              break;
-              
-            case "clear_buffer":
-              console.log("Received clear buffer command");
-              // Clear audio buffer
-              audioQueueRef.current = [];
-              isPlayingRef.current = false;
-              break;
-              
-            case "error":
-              console.error("Error from server:", message.message);
-              setError(message.message);
-              break;
-              
-            default:
-              // For other messages, we just log them
-              console.log("Other message type:", message.type);
-          }
-        } catch (error) {
-          console.error("Error parsing WebSocket message:", error, "Raw message:", event.data);
-        }
-      }
-    };
-    
-    ws.onclose = (event) => {
-      console.log("WebSocket connection closed:", event.code, event.reason);
-      setIsConnected(false);
-      setSessionState("idle");
-    };
-    
-    // In the connectWebSocket function
-ws.onerror = (error) => {
-  console.error("WebSocket error:", error);
-  console.error("WebSocket URL:", wsUrl);
-  console.error("WebSocket readyState:", ws.readyState);
-  setError("WebSocket connection error");
-  setIsConnected(false);
-};
-    
-    websocketRef.current = ws;
-  };
-  
-  // End the current session
   const endSession = async () => {
     try {
-      if (sessionId) {
-        // Stop the mic first
-        if (isListening) {
-          stopMicrophone();
-        }
-        
-        // Close the WebSocket
-        if (websocketRef.current) {
-          websocketRef.current.close();
-          websocketRef.current = null;
-        }
-        
-        // Call API to end the session
-        await fetch(`${BACKEND_URL}/api/session/${sessionId}`, {
-          method: 'DELETE'
-        });
-        
-        // Reset state
-        setSessionId(null);
-        setIsConnected(false);
-        setSessionState("idle");
-        setTranscript("");
-        setFinalTranscript("");
-        setError(null);
+      // Stop microphone if active
+      if (isListening) {
+        stopMicrophone();
       }
+      
+      // Leave Ultravox call
+      if (uvSessionRef.current) {
+        await uvSessionRef.current.leaveCall();
+        uvSessionRef.current = null;
+      }
+      
+      // Reset state
+      setSessionId(null);
+      setJoinUrl(null);
+      setIsConnected(false);
+      setSessionState("idle");
+      setTranscript("");
+      setFinalTranscript("");
+      setError(null);
+      setAudioSource(null);
+      setAudioLevel(0);
+      
     } catch (error) {
       console.error("Error ending session:", error);
       setError(error instanceof Error ? error.message : "Failed to end session");
+    }
+  };
+
+  const sendTextMessage = (text: string) => {
+    if (uvSessionRef.current && isConnected) {
+      uvSessionRef.current.sendText(text);
+    }
+  };
+
+  const setOutputToText = () => {
+    if (uvSessionRef.current && isConnected) {
+      uvSessionRef.current.setOutputMedium(Medium.TEXT);
+    }
+  };
+
+  const setOutputToVoice = () => {
+    if (uvSessionRef.current && isConnected) {
+      uvSessionRef.current.setOutputMedium(Medium.VOICE);
     }
   };
 
@@ -647,7 +537,7 @@ ws.onerror = (error) => {
       default: 
         if (isListening) return "Microphone active";
         if (isPlaying) return `Playing ${audioTracks[selectedTrack].name}`;
-        return "Waiting for input";
+        return "Ready";
     }
   };
 
@@ -724,15 +614,41 @@ ws.onerror = (error) => {
             />
           </div>
           
-          {/* Transcript Display (only show when connected) */}
-          {isConnected && (
-            <div className="w-full bg-muted/30 p-3 rounded-md max-h-24 overflow-y-auto">
-              <p className="text-sm font-medium mb-1">Transcript:</p>
-              <p className="text-sm">
-                {transcript || "Waiting for conversation..."}
+          {/* Transcript Display */}
+          <div className="w-full bg-muted/30 p-3 rounded-md max-h-28 overflow-y-auto">
+            {finalTranscript && (
+              <div className="text-sm mb-2">
+                {finalTranscript.split('\n').map((line, i) => (
+                  <p key={i} className="mb-1">
+                    {line.startsWith('You:') ? (
+                      <span className="text-blue-500 font-medium">{line}</span>
+                    ) : (
+                      <span>{line}</span>
+                    )}
+                  </p>
+                ))}
+              </div>
+            )}
+            {transcript && (
+              <div className="text-sm">
+                <motion.p
+                  initial={{ opacity: 0.5 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.5 }}
+                  className="text-blue-600 dark:text-blue-400"
+                >
+                  {transcript}
+                </motion.p>
+              </div>
+            )}
+            {!transcript && !finalTranscript && (
+              <p className="text-sm text-muted-foreground">
+                {isConnected 
+                  ? "Start speaking to begin a conversation..." 
+                  : "Connect to start a conversation"}
               </p>
-            </div>
-          )}
+            )}
+          </div>
           
           {/* Connection Status Indicator */}
           {sessionId && (
@@ -751,99 +667,85 @@ ws.onerror = (error) => {
               className="flex-1"
               disabled={isLoading}
             >
-              {isListening ? (
-                <>
-                  <X className="mr-2" size={18} />
-                  Stop Mic
-                </>
-              ) : (
-                <>
-                  <Mic className="mr-2" size={18} />
-                  Start Mic
-                </>
-              )}
+              {isListening ? <X size={18} className="mr-2" /> : <Mic size={18} className="mr-2" />}
+              {isListening ? "Stop Mic" : "Mic"}
             </Button>
             
             {!isConnected ? (
               <Button 
-                onClick={handlePlayToggle}
+                onClick={handlePlayToggle} 
                 variant={isPlaying ? "destructive" : "default"}
-                className={isPlaying ? "" : getIndicatorColor()}
-                disabled={isLoading}
+                className={`flex-1 ${isPlaying ? "" : audioTracks[selectedTrack].color}`}
+                disabled={isConnected || isLoading}
               >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="mr-2 animate-spin" size={18} />
-                    Loading...
-                  </>
-                ) : isPlaying ? (
-                  <>
-                    <X className="mr-2" size={18} />
-                    Stop Audio
-                  </>
-                ) : (
-                  <>
-                    <Play className="mr-2" size={18} />
-                    Play {audioTracks[selectedTrack].name}
-                  </>
-                )}
+                {isPlaying ? <X size={18} className="mr-2" /> : <Play size={18} className="mr-2" />}
+                {isPlaying ? "Stop" : "Play"}
               </Button>
-            ) : (
+            ) : null}
+            
+            {!isConnected ? (
               <Button 
-                onClick={endSession}
-                variant="destructive"
+                onClick={initializeUltravoxSession} 
+                variant="outline"
                 className="flex-1"
                 disabled={isLoading}
               >
-                <X className="mr-2" size={18} />
-                End Session
+                <Info size={18} className="mr-2" />
+                Connect AI
+              </Button>
+            ) : (
+              <Button 
+                onClick={endSession} 
+                variant="outline"
+                className="flex-1"
+                disabled={isLoading}
+              >
+                <X size={18} className="mr-2" />
+                Disconnect
               </Button>
             )}
           </div>
           
-          {/* Status indicator */}
-          <div className="w-full p-3 bg-muted/50 rounded-md flex items-center justify-between text-sm">
-            <div className="flex items-center">
-              {(audioSource || isConnected) ? (
-                <>
-                  <motion.span 
-                    className={`inline-block w-2 h-2 rounded-full ${
-                      isConnected ? "bg-blue-500" : "bg-emerald-500"
-                    } mr-2`}
-                    animate={{ opacity: [0.5, 1, 0.5] }}
-                    transition={{ duration: 1.5, repeat: Infinity }}
-                  />
-                  <span>
-                    {getStatusText()}
-                  </span>
-                </>
-              ) : (
-                <>
-                  <span className="inline-block w-2 h-2 rounded-full bg-muted-foreground mr-2"></span>
-                  <span className="text-muted-foreground">Waiting for input</span>
-                </>
-              )}
+          {/* Output Mode Controls (when connected) */}
+          {isConnected && (
+            <div className="flex w-full gap-3">
+              <Button 
+                onClick={setOutputToVoice}
+                variant="outline"
+                className="flex-1"
+                disabled={isLoading}
+              >
+                <Volume2 size={18} className="mr-2" />
+                Voice Mode
+              </Button>
+              <Button 
+                onClick={setOutputToText}
+                variant="outline"
+                className="flex-1"
+                disabled={isLoading}
+              >
+                <Info size={18} className="mr-2" />
+                Text Mode
+              </Button>
             </div>
-            
-            {(audioSource || sessionState === "speaking") && (
-              <Badge variant="outline" className="font-mono">
-                {Math.round(audioLevel * 100)}%
-              </Badge>
-            )}
+          )}
+          
+          {/* Status Text */}
+          <div className="w-full text-center text-sm text-muted-foreground">
+            {getStatusText()}
           </div>
           
-          {/* Error display */}
+          {/* Error Display */}
           {error && (
-            <div className="w-full p-3 bg-red-500/10 border border-red-500/30 rounded-md">
-              <p className="text-red-500 text-sm">{error}</p>
+            <div className="w-full p-3 bg-red-500/20 text-red-600 dark:text-red-400 rounded-md">
+              <p className="text-sm">{error}</p>
             </div>
           )}
         </CardContent>
       </Card>
       
-      <div className="mt-4 text-xs text-muted-foreground">
-        Creek © 2025
-      </div>
+      {/* Audio elements for sample playback */}
+      <audio ref={audioRef} className="hidden" />
     </div>
   );
-}
+} 
