@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
@@ -12,8 +14,8 @@ type TrackId = 'gardens' | 'kugelsicher' | 'spinningHead';
 type AudioSourceType = 'microphone' | 'playback' | null;
 
 // Backend server URLs - change these to match your deployment
-const BACKEND_URL = "http://localhost:8000";
-const WS_URL = "ws://localhost:8000";
+const BACKEND_URL = "https://fast-api-uv-backend.onrender.com";
+const WS_URL = "wss://fast-api-uv-backend.onrender.com";
 
 // Match audio sample rate with the backend
 const SAMPLE_RATE = 16000;
@@ -553,11 +555,14 @@ export default function AudioVisualizer() {
       setSessionState("idle");
     };
     
-    ws.onerror = (error) => {
-      console.error("WebSocket error:", error);
-      setError("WebSocket connection error");
-      setIsConnected(false);
-    };
+    // In the connectWebSocket function
+ws.onerror = (error) => {
+  console.error("WebSocket error:", error);
+  console.error("WebSocket URL:", wsUrl);
+  console.error("WebSocket readyState:", ws.readyState);
+  setError("WebSocket connection error");
+  setIsConnected(false);
+};
     
     websocketRef.current = ws;
   };
@@ -732,7 +737,7 @@ export default function AudioVisualizer() {
           {/* Connection Status Indicator */}
           {sessionId && (
             <div className="w-full text-center">
-              <Badge variant={isConnected ? "success" : "destructive"}>
+              <Badge variant={isConnected ? "default" : "destructive"}>
                 {isConnected ? "Connected" : "Disconnected"}
               </Badge>
             </div>
