@@ -3,6 +3,43 @@ import { NextRequest, NextResponse } from 'next/server';
 // Configure environment variables or use them directly in production
 const ULTRAVOX_API_KEY = process.env.ULTRAVOX_API_KEY || 'dSn7oxDz.oUsfzT4pnjJbCl4keqq6DWlAlT23Ip0t';
 
+// Fetch available voices from the Ultravox API
+export async function GET(request: NextRequest) {
+  try {
+    const response = await fetch('https://api.ultravox.ai/api/voices', {
+      method: 'GET',
+      headers: {
+        'X-API-Key': ULTRAVOX_API_KEY,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("Ultravox API error:", response.status, errorText);
+      return NextResponse.json(
+        { error: `Failed to fetch voices: ${response.status} ${response.statusText}` },
+        { status: response.status }
+      );
+    }
+    
+    const data = await response.json();
+    
+    // Return just the results array which contains the voices
+    if (data && data.results && Array.isArray(data.results)) {
+      return NextResponse.json(data.results);
+    } else {
+      return NextResponse.json(data);
+    }
+  } catch (error) {
+    console.error("Error fetching Ultravox voices:", error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Unknown error" },
+      { status: 500 }
+    );
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();

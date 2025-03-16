@@ -1,26 +1,71 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-/* eslint-disable @typescript-eslint/no-unused-vars */
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
-import { Play, Mic, X, Volume2, Loader2, Music, Info } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { Mic, X, Volume2, Loader2, Bot, Phone } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ThemeToggle } from '@/components/toggle';
-import { UltravoxSession, UltravoxSessionStatus, Medium } from 'ultravox-client';
+import { UltravoxSession, UltravoxSessionStatus } from 'ultravox-client';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-type TrackId = 'gardens' | 'kugelsicher' | 'spinningHead';
-type AudioSourceType = 'microphone' | 'playback' | null;
+// Voice interface from Ultravox API
+interface UltravoxVoice {
+  voiceId: string;
+  name: string;
+  description?: string;
+}
+
+// Bot persona interface with voice integration
+interface BotPersona {
+  id: string;
+  name: string;
+  systemPrompt: string;
+  voice: string;
+  color: string;
+  icon: JSX.Element;
+  description: string;
+}
+
+// System prompts for different assistant types
+const systemPrompts = {
+  general: "You are a helpful AI assistant talking to a user. Keep your responses helpful and concise.",
+  customer: "You are a friendly customer service representative. Help the customer with their questions and concerns in a professional and friendly manner.",
+  technical: "You are a technical support agent helping users troubleshoot problems with their devices. Be patient, methodical, and clear in your explanations.",
+  creative: "You are a creative assistant helping users with generating ideas, writing content, and brainstorming. Be imaginative and enthusiastic."
+};
+
+// Assign a color to each voice based on its name (for consistency)
+const getVoiceColor = (voiceName: string): string => {
+  const colors = [
+    "bg-blue-500", "bg-green-600", "bg-purple-600", "bg-red-600", 
+    "bg-yellow-500", "bg-indigo-600", "bg-pink-600", "bg-teal-600"
+  ];
+  
+  // Hash the name to get a consistent color
+  let hash = 0;
+  for (let i = 0; i < voiceName.length; i++) {
+    hash = ((hash << 5) - hash) + voiceName.charCodeAt(i);
+    hash |= 0; // Convert to 32bit integer
+  }
+  
+  // Use absolute value and modulo to get index within colors array
+  const colorIndex = Math.abs(hash) % colors.length;
+  return colors[colorIndex];
+};
 
 export default function AudioVisualizer() {
   const [isListening, setIsListening] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
-  const [audioSource, setAudioSource] = useState<AudioSourceType>(null);
-  const [selectedTrack, setSelectedTrack] = useState<TrackId>('gardens');
+  const [selectedVoice, setSelectedVoice] = useState<string>("");
   const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorDialogOpen, setErrorDialogOpen] = useState(false);
+  const [availableVoices, setAvailableVoices] = useState<UltravoxVoice[]>([]);
+  const [botPersonas, setBotPersonas] = useState<BotPersona[]>([]);
+  const [isLoadingVoices, setIsLoadingVoices] = useState(true);
   
   // Ultravox state
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -28,48 +73,20 @@ export default function AudioVisualizer() {
   const [sessionState, setSessionState] = useState<string>("idle");
   const [isConnected, setIsConnected] = useState(false);
   const [transcript, setTranscript] = useState("");
-  const [finalTranscript, setFinalTranscript] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [conversation, setConversation] = useState<Array<{role: string, text: string}>>([]);
   
   // Refs
   const micStreamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
-  const audioElementRef = useRef<HTMLAudioElement | null>(null);
   const frameRef = useRef<number | null>(null);
-  const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
   const prevLevelRef = useRef<number>(0);
   const uvSessionRef = useRef<UltravoxSession | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const transcriptContainerRef = useRef<HTMLDivElement | null>(null);
   
   const SAMPLE_RATE = 16000; // Match with Ultravox requirements
   
-  const audioTracks = {
-    gardens: {
-      name: "Gardens",
-      path: "/audio/gardens.mp3",
-      color: "bg-emerald-500",
-      hoverColor: "hover:bg-emerald-600",
-      activeColor: "bg-emerald-600"
-    },
-    kugelsicher: {
-      name: "Kugelsicher",
-      path: "/audio/kugelsicher.mp3",
-      color: "bg-violet-500",
-      hoverColor: "hover:bg-violet-600",
-      activeColor: "bg-violet-600"
-    },
-    spinningHead: {
-      name: "Spinning Head",
-      path: "/audio/spinning-head.mp3",
-      color: "bg-amber-500",
-      hoverColor: "hover:bg-amber-600",
-      activeColor: "bg-amber-600"
-    }
-  };
-  
-  const sampleAudioUrl = audioTracks[selectedTrack].path;
-
   // Initialize audio context and analyzer
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -83,6 +100,9 @@ export default function AudioVisualizer() {
       analyserRef.current.smoothingTimeConstant = 0.7;
       
       audioRef.current = new Audio("/mixkit-select-click-1109.wav");
+      
+      // Fetch available voices
+      fetchVoices();
       
       return () => {
         if (frameRef.current) {
@@ -101,11 +121,143 @@ export default function AudioVisualizer() {
     }
   }, []);
 
+  // Fetch available voices from Ultravox API
+  const fetchVoices = async () => {
+    try {
+      setIsLoadingVoices(true);
+      
+      const response = await fetch('/api/create-ultravox-call', {
+        method: 'GET'
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch voices: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      // Ensure the data is in the expected format
+      if (Array.isArray(data)) {
+        setAvailableVoices(data);
+        
+        // Create personas from the voices
+        const personas: BotPersona[] = data.map((voice: UltravoxVoice) => {
+          // Choose a system prompt based on the voice name pattern
+          let prompt = systemPrompts.general;
+          const voiceLower = voice.name.toLowerCase();
+          
+          if (voiceLower.includes('customer') || voiceLower.includes('service')) {
+            prompt = systemPrompts.customer;
+          } else if (voiceLower.includes('tech') || voiceLower.includes('support')) {
+            prompt = systemPrompts.technical;
+          } else if (voiceLower.includes('creative') || voiceLower.includes('writer')) {
+            prompt = systemPrompts.creative;
+          }
+          
+          return {
+            id: voice.voiceId,
+            name: voice.name,
+            systemPrompt: prompt,
+            voice: voice.voiceId,
+            color: getVoiceColor(voice.name),
+            icon: <Bot className="h-4 w-4" />,
+            description: voice.description || `Voice assistant using ${voice.name}`
+          };
+        });
+        
+        // Add a default persona if none are available
+        if (personas.length === 0) {
+          personas.push({
+            id: 'default',
+            name: 'Default Assistant',
+            systemPrompt: systemPrompts.general,
+            voice: "Mark", // Fallback to Mark as in original code
+            color: "bg-blue-500",
+            icon: <Bot className="h-4 w-4" />,
+            description: "A general-purpose assistant that can help with a variety of topics."
+          });
+        }
+        
+        setBotPersonas(personas);
+        
+        // Set the default selected voice
+        if (personas.length > 0 && !selectedVoice) {
+          setSelectedVoice(personas[0].id);
+        }
+      } else {
+        // If the API doesn't return an array, use fallback personas
+        setFallbackPersonas();
+      }
+    } catch (error) {
+      console.error("Error fetching voices:", error);
+      setFallbackPersonas();
+    } finally {
+      setIsLoadingVoices(false);
+    }
+  };
+
+  // Set fallback personas if voice API fails
+  const setFallbackPersonas = () => {
+    const fallbackPersonas = [
+      {
+        id: 'Mark',
+        name: 'Mark',
+        systemPrompt: systemPrompts.general,
+        voice: "Mark",
+        color: "bg-blue-500",
+        icon: <Bot className="h-4 w-4" />,
+        description: "A general-purpose assistant that can help with a variety of topics."
+      },
+      {
+        id: 'Emily',
+        name: 'Emily',
+        systemPrompt: systemPrompts.customer,
+        voice: "Emily",
+        color: "bg-green-600",
+        icon: <Bot className="h-4 w-4" />,
+        description: "A friendly customer service representative."
+      },
+      {
+        id: 'Josh',
+        name: 'Josh',
+        systemPrompt: systemPrompts.technical,
+        voice: "Josh",
+        color: "bg-red-600",
+        icon: <Bot className="h-4 w-4" />,
+        description: "A technical support specialist."
+      },
+      {
+        id: 'Daniel',
+        name: 'Daniel',
+        systemPrompt: systemPrompts.creative,
+        voice: "Daniel",
+        color: "bg-purple-600",
+        icon: <Bot className="h-4 w-4" />,
+        description: "A creative assistant for brainstorming and writing."
+      }
+    ];
+    
+    setBotPersonas(fallbackPersonas);
+    setSelectedVoice(fallbackPersonas[0].id);
+  };
+
+  // Auto-scroll the transcript container
+  useEffect(() => {
+    if (transcriptContainerRef.current) {
+      transcriptContainerRef.current.scrollTop = transcriptContainerRef.current.scrollHeight;
+    }
+  }, [conversation, transcript]);
+
   // Create Ultravox session
   const createUltravoxSession = async () => {
     try {
       setIsLoading(true);
-      setError(null);
+      setErrorMessage(null);
+      
+      // Find the selected bot
+      const botPersona = botPersonas.find(bot => bot.id === selectedVoice) || botPersonas[0];
+      
+      console.log("Creating call with voice:", botPersona.voice);
       
       const response = await fetch('/api/create-ultravox-call', {
         method: 'POST',
@@ -113,14 +265,15 @@ export default function AudioVisualizer() {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          systemPrompt: "You are a helpful AI assistant talking to a user. Keep your responses short, friendly and helpful.",
-          voice: "Mark",
+          systemPrompt: botPersona.systemPrompt,
+          voice: botPersona.voice,
           temperature: 0.7
         })
       });
       
       if (!response.ok) {
-        throw new Error(`Failed to create Ultravox call: ${response.status} ${response.statusText}`);
+        const errorData = await response.json();
+        throw new Error(errorData.error || `Failed to create Ultravox call: ${response.status}`);
       }
       
       const data = await response.json();
@@ -129,13 +282,16 @@ export default function AudioVisualizer() {
         throw new Error("Invalid response: missing joinUrl");
       }
       
+      console.log("Created call with join URL:", data.joinUrl);
+      
       setJoinUrl(data.joinUrl);
       setSessionId(data.callId);
       
       return data.joinUrl;
     } catch (error) {
       console.error("Error creating Ultravox call:", error);
-      setError(error instanceof Error ? error.message : "Failed to create Ultravox call");
+      setErrorMessage(error instanceof Error ? error.message : "Failed to create Ultravox call");
+      setErrorDialogOpen(true);
       return null;
     } finally {
       setIsLoading(false);
@@ -174,12 +330,10 @@ export default function AudioVisualizer() {
           setIsConnected(false);
         }
         
-        // Update audio source when agent is speaking
+        // When agent is speaking, start audio visualization
         if (session.status === UltravoxSessionStatus.SPEAKING) {
-          setAudioSource('playback');
           analyzeAudio();
         } else if (session.status === UltravoxSessionStatus.DISCONNECTED) {
-          setAudioSource(null);
           setAudioLevel(0);
         }
       });
@@ -195,13 +349,21 @@ export default function AudioVisualizer() {
           if (agentTranscripts.length > 0) {
             const latestTranscript = agentTranscripts[agentTranscripts.length - 1];
             
-            // Update current transcript
-            setTranscript(latestTranscript.text);
-            
-            // When final, move to finalTranscript
-            if (latestTranscript.isFinal) {
-              setFinalTranscript(prev => {
-                return prev ? `${prev}\n${latestTranscript.text}` : latestTranscript.text;
+            // Update current transcript for non-final messages
+            if (!latestTranscript.isFinal) {
+              setTranscript(latestTranscript.text);
+            } else {
+              // When final, move to conversation and clear the transcript
+              setConversation(prev => {
+                // Check if we already have this message to avoid duplicates
+                const exists = prev.some(
+                  msg => msg.role === 'assistant' && msg.text === latestTranscript.text
+                );
+                
+                if (!exists) {
+                  return [...prev, { role: 'assistant', text: latestTranscript.text }];
+                }
+                return prev;
               });
               setTranscript("");
             }
@@ -212,8 +374,16 @@ export default function AudioVisualizer() {
           if (userTranscripts.length > 0) {
             const latestUserTranscript = userTranscripts[userTranscripts.length - 1];
             if (latestUserTranscript.isFinal) {
-              setFinalTranscript(prev => {
-                return prev ? `${prev}\nYou: ${latestUserTranscript.text}` : `You: ${latestUserTranscript.text}`;
+              setConversation(prev => {
+                // Check if we already have this message to avoid duplicates
+                const exists = prev.some(
+                  msg => msg.role === 'user' && msg.text === latestUserTranscript.text
+                );
+                
+                if (!exists) {
+                  return [...prev, { role: 'user', text: latestUserTranscript.text }];
+                }
+                return prev;
               });
             }
           }
@@ -223,11 +393,6 @@ export default function AudioVisualizer() {
       // Set up debug message listener
       session.addEventListener('experimental_message', (event) => {
         console.log('Experimental message:', (event as any).message);
-      });
-      
-      // Set up data message listener 
-      session.addEventListener('data_message', (event) => {
-        console.log('Data message:', (event as any).message);
       });
 
       // Store the session
@@ -239,18 +404,22 @@ export default function AudioVisualizer() {
       return true;
     } catch (error) {
       console.error("Error initializing Ultravox session:", error);
-      setError(error instanceof Error ? error.message : "Failed to initialize Ultravox session");
+      setErrorMessage(error instanceof Error ? error.message : "Failed to initialize Ultravox session");
+      setErrorDialogOpen(true);
       return false;
+    }
+  };
+
+  const handleMicToggle = async () => {
+    if (isListening) {
+      stopMicrophone();
+    } else {
+      await startMicrophone();
     }
   };
 
   const startMicrophone = async () => {
     try {
-      // If playing sample audio, stop it
-      if (isPlaying) {
-        stopAudio();
-      }
-      
       // Resume audio context if suspended
       if (audioContextRef.current?.state === 'suspended') {
         await audioContextRef.current.resume();
@@ -291,12 +460,12 @@ export default function AudioVisualizer() {
       }
       
       setIsListening(true);
-      setAudioSource('microphone');
       
       analyzeAudio();
     } catch (error) {
       console.error("Error accessing microphone:", error);
-      setError(error instanceof Error ? error.message : "Failed to access microphone");
+      setErrorMessage(error instanceof Error ? error.message : "Failed to access microphone");
+      setErrorDialogOpen(true);
     }
   };
 
@@ -314,70 +483,6 @@ export default function AudioVisualizer() {
     }
     
     setIsListening(false);
-    setAudioSource(null);
-    setAudioLevel(0);
-    
-    if (frameRef.current) {
-      cancelAnimationFrame(frameRef.current);
-      frameRef.current = null;
-    }
-  };
-
-  const playAudio = async () => {
-    if (isListening) {
-      stopMicrophone();
-    }
-    
-    setIsLoading(true);
-    
-    if (audioContextRef.current?.state === 'suspended') {
-      await audioContextRef.current.resume();
-    }
-    
-    if (audioElementRef.current) {
-      audioElementRef.current.removeEventListener('ended', stopAudio);
-      audioElementRef.current = null;
-      if (sourceNodeRef.current) {
-        sourceNodeRef.current.disconnect();
-        sourceNodeRef.current = null;
-      }
-    }
-    
-    audioElementRef.current = new Audio(sampleAudioUrl);
-    audioElementRef.current.addEventListener('ended', stopAudio);
-    audioElementRef.current.addEventListener('loadeddata', () => {
-      setIsLoading(false);
-    });
-    
-    if (audioContextRef.current && analyserRef.current && audioElementRef.current) {
-      sourceNodeRef.current = audioContextRef.current.createMediaElementSource(audioElementRef.current);
-      sourceNodeRef.current.connect(analyserRef.current);
-      analyserRef.current.connect(audioContextRef.current.destination);
-    }
-    
-    try {
-      if (audioElementRef.current) {
-        await audioElementRef.current.play();
-        setIsPlaying(true);
-        setAudioSource('playback');
-        
-        analyzeAudio();
-      }
-    } catch (error) {
-      console.error("Error playing audio:", error);
-      setIsLoading(false);
-      alert("Could not play audio. Please try clicking the play button again.");
-    }
-  };
-
-  const stopAudio = () => {
-    if (audioElementRef.current) {
-      audioElementRef.current.pause();
-      audioElementRef.current.currentTime = 0;
-    }
-    
-    setIsPlaying(false);
-    setAudioSource(null);
     setAudioLevel(0);
     
     if (frameRef.current) {
@@ -422,29 +527,6 @@ export default function AudioVisualizer() {
     updateLevel();
   };
 
-  const selectTrack = (trackId: TrackId) => {
-    if (isPlaying) {
-      stopAudio();
-    }
-    setSelectedTrack(trackId);
-  };
-
-  const handleMicToggle = () => {
-    if (isListening) {
-      stopMicrophone();
-    } else {
-      startMicrophone();
-    }
-  };
-
-  const handlePlayToggle = () => {
-    if (isPlaying) {
-      stopAudio();
-    } else {
-      playAudio();
-    }
-  };
-
   const endSession = async () => {
     try {
       // Stop microphone if active
@@ -464,63 +546,67 @@ export default function AudioVisualizer() {
       setIsConnected(false);
       setSessionState("idle");
       setTranscript("");
-      setFinalTranscript("");
-      setError(null);
-      setAudioSource(null);
+      setConversation([]);
       setAudioLevel(0);
       
     } catch (error) {
       console.error("Error ending session:", error);
-      setError(error instanceof Error ? error.message : "Failed to end session");
+      setErrorMessage(error instanceof Error ? error.message : "Failed to end session");
+      setErrorDialogOpen(true);
     }
   };
 
-  const sendTextMessage = (text: string) => {
-    if (uvSessionRef.current && isConnected) {
-      uvSessionRef.current.sendText(text);
-    }
-  };
-
-  const setOutputToText = () => {
-    if (uvSessionRef.current && isConnected) {
-      uvSessionRef.current.setOutputMedium(Medium.TEXT);
-    }
-  };
-
-  const setOutputToVoice = () => {
-    if (uvSessionRef.current && isConnected) {
-      uvSessionRef.current.setOutputMedium(Medium.VOICE);
+  const handleVoiceChange = async (voiceId: string) => {
+    console.log("Voice changed to:", voiceId);
+    setSelectedVoice(voiceId);
+    
+    // If already connected, disconnect and reconnect with new voice
+    if (isConnected) {
+      await endSession();
+      
+      // Small delay to ensure everything is cleaned up
+      setTimeout(async () => {
+        await startMicrophone();
+      }, 500);
     }
   };
 
   const baseSize = 120; 
   const maxExpansion = 80; 
   const currentSize = baseSize + (audioLevel * maxExpansion);
+  
+  // Get the current bot
+  const currentBot = botPersonas.find(bot => bot.id === selectedVoice) || botPersonas[0];
 
+  // Get indicator color based on selected bot
   const getIndicatorColor = () => {
-    // If connected to Ultravox and speaking or listening
-    if (isConnected && (sessionState === "speaking" || sessionState === "thinking")) {
-      return "bg-blue-500";
-    }
-    return audioTracks[selectedTrack].color;
+    return currentBot?.color || "bg-blue-500";
   };
 
-  const getBoxShadowColor = (trackId: TrackId, opacity = 0.4) => {
-    // If connected to Ultravox and speaking or listening
-    if (isConnected && (sessionState === "speaking" || sessionState === "thinking")) {
-      return `rgba(59, 130, 246, ${opacity})`; // blue shadow
-    }
+  // Get box shadow color
+  const getBoxShadowColor = (opacity = 0.4) => {
+    const botColor = (currentBot?.color || "bg-blue-500").replace('bg-', '');
+    let rgbColor;
     
-    const opacityValue = opacity.toFixed(2);
-    switch (trackId) {
-      case 'gardens':
-        return `rgba(16, 185, 129, ${opacityValue})`;
-      case 'kugelsicher':
-        return `rgba(139, 92, 246, ${opacityValue})`; 
-      case 'spinningHead':
-        return `rgba(245, 158, 11, ${opacityValue})`; 
+    switch(botColor) {
+      case 'blue-500':
+        return `rgba(59, 130, 246, ${opacity})`;
+      case 'green-600':
+        return `rgba(5, 150, 105, ${opacity})`;
+      case 'red-600':
+        return `rgba(220, 38, 38, ${opacity})`;
+      case 'purple-600':
+        return `rgba(124, 58, 237, ${opacity})`;
+      case 'yellow-500':
+        return `rgba(245, 158, 11, ${opacity})`;
+      case 'indigo-600':
+        return `rgba(79, 70, 229, ${opacity})`;
+      case 'pink-600':
+        return `rgba(219, 39, 119, ${opacity})`;
+      case 'teal-600':
+        return `rgba(13, 148, 136, ${opacity})`;
       default:
-        return `rgba(129, 140, 248, ${opacityValue})`; 
+        return `rgba(59, 130, 246, ${opacity})`;
     }
   };
 
@@ -530,15 +616,13 @@ export default function AudioVisualizer() {
 
   // Display status text based on session state
   const getStatusText = () => {
-    if (!isConnected) return "Not connected";
+    if (!isConnected) return "Click microphone to start";
     
     switch(sessionState) {
-      case "speaking": return "AI is speaking";
-      case "thinking": return "AI is thinking";
-      case "listening": return "AI is listening";
+      case "speaking": return `${currentBot?.name || 'Assistant'} is speaking`;
+      case "thinking": return `${currentBot?.name || 'Assistant'} is thinking`;
+      case "listening": return `${currentBot?.name || 'Assistant'} is listening`;
       default: 
-        if (isListening) return "Microphone active";
-        if (isPlaying) return `Playing ${audioTracks[selectedTrack].name}`;
         return "Ready";
     }
   };
@@ -548,34 +632,37 @@ export default function AudioVisualizer() {
       <Card className="w-full max-w-md">
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="flex items-center gap-2">
-            <Music size={24} className="text-emerald-500" />
-            Creek
+            {currentBot?.icon || <Bot className="h-4 w-4" />}
+            <span>{currentBot?.name || 'Assistant'}</span>
           </CardTitle>
           <div className="flex items-center gap-3">
-            <Badge variant="outline">Audio Visualizer</Badge>
+            <Select 
+              value={selectedVoice} 
+              onValueChange={handleVoiceChange} 
+              disabled={isLoadingVoices || isConnected}
+            >
+              <SelectTrigger className="w-36">
+                <SelectValue placeholder={isLoadingVoices ? "Loading..." : "Select voice"} />
+              </SelectTrigger>
+              <SelectContent>
+                {botPersonas.map(bot => (
+                  <SelectItem key={bot.id} value={bot.id}>
+                    <div className="flex items-center gap-2">
+                      {bot.icon}
+                      <span>{bot.name}</span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <ThemeToggle />
           </div>
         </CardHeader>
         <CardContent className="flex flex-col items-center space-y-6">
-          {/* Track Selection */}
-          <div className="w-full grid grid-cols-3 gap-2">
-            {(Object.entries(audioTracks) as [TrackId, typeof audioTracks[TrackId]][]).map(([id, track]) => (
-              <Button
-                key={id}
-                onClick={() => selectTrack(id)}
-                variant={selectedTrack === id ? "default" : "outline"}
-                className={selectedTrack === id ? track.color : ""}
-                disabled={isConnected} // Disable track selection when connected to Ultravox
-              >
-                {track.name}
-              </Button>
-            ))}
-          </div>
-          
           {/* Indicator Circle */}
-          <div className="relative h-72 w-72 flex items-center justify-center">
+          <div className="relative h-48 w-48 flex items-center justify-center">
             {/* Outer reference circle */}
-            <div className="absolute w-48 h-48 rounded-full border border-muted" />
+            <div className="absolute w-36 h-36 rounded-full border border-muted" />
             
             {/* Active indicator with motion */}
             <motion.div 
@@ -583,22 +670,20 @@ export default function AudioVisualizer() {
               animate={{ 
                 width: `${currentSize}px`,
                 height: `${currentSize}px`,
-                opacity: audioSource || sessionState === "speaking" ? 0.85 : 0.5,
-                boxShadow: audioSource || sessionState === "speaking" ? 
-                  `0 0 ${30 + (audioLevel * 20)}px ${getBoxShadowColor(selectedTrack, getGlowIntensity())}` : 'none'
+                opacity: isListening || sessionState === "speaking" ? 0.85 : 0.5,
+                boxShadow: isListening || sessionState === "speaking" ? 
+                  `0 0 ${30 + (audioLevel * 20)}px ${getBoxShadowColor(getGlowIntensity())}` : 'none'
               }}
               transition={{ duration: 0.1 }}
             >
               {isLoading ? (
                 <Loader2 size={28} className="text-white animate-spin" />
-              ) : audioSource || sessionState === "speaking" ? (
+              ) : isListening || sessionState === "speaking" ? (
                 <div className="text-white">
                   {sessionState === "speaking" ? (
                     <Volume2 size={28} />
-                  ) : audioSource === 'microphone' ? (
-                    <Mic size={28} />
                   ) : (
-                    <Volume2 size={28} />
+                    <Mic size={28} />
                   )}
                 </div>
               ) : null}
@@ -617,137 +702,108 @@ export default function AudioVisualizer() {
           </div>
           
           {/* Transcript Display */}
-          <div className="w-full bg-muted/30 p-3 rounded-md max-h-28 overflow-y-auto">
-            {finalTranscript && (
-              <div className="text-sm mb-2">
-                {finalTranscript.split('\n').map((line, i) => (
-                  <p key={i} className="mb-1">
-                    {line.startsWith('You:') ? (
-                      <span className="text-blue-500 font-medium">{line}</span>
-                    ) : (
-                      <span>{line}</span>
-                    )}
-                  </p>
-                ))}
+          <div 
+            ref={transcriptContainerRef}
+            className="w-full bg-muted/30 p-3 rounded-md h-48 overflow-y-auto scrollbar-thin scrollbar-thumb-rounded scrollbar-thumb-gray-300"
+          >
+            {conversation.map((message, index) => (
+              <div 
+                key={index} 
+                className={`p-2 rounded-lg max-w-[85%] mb-2 ${
+                  message.role === 'user' 
+                    ? 'ml-auto bg-blue-500 text-white' 
+                    : 'bg-gray-200 dark:bg-gray-700'
+                }`}
+              >
+                <p className="text-sm">{message.text}</p>
               </div>
-            )}
+            ))}
             {transcript && (
-              <div className="text-sm">
+              <div className="p-2 rounded-lg max-w-[85%] mb-2 bg-gray-200 dark:bg-gray-700">
                 <motion.p
                   initial={{ opacity: 0.5 }}
                   animate={{ opacity: 1 }}
                   transition={{ duration: 0.5 }}
-                  className="text-blue-600 dark:text-blue-400"
+                  className="text-sm"
                 >
                   {transcript}
                 </motion.p>
               </div>
             )}
-            {!transcript && !finalTranscript && (
-              <p className="text-sm text-muted-foreground">
-                {isConnected 
-                  ? "Start speaking to begin a conversation..." 
-                  : "Connect to start a conversation"}
-              </p>
+            {!transcript && conversation.length === 0 && (
+              <div className="h-full flex items-center justify-center">
+                <p className="text-sm text-muted-foreground text-center">
+                  {isConnected 
+                    ? "Start speaking to begin a conversation..." 
+                    : "Click the microphone button to start talking with the voice assistant"}
+                </p>
+              </div>
             )}
           </div>
           
-          {/* Connection Status Indicator */}
+          {/* Connection Status Badge */}
           {sessionId && (
             <div className="w-full text-center">
-              <Badge variant={isConnected ? "default" : "destructive"}>
+              <Badge variant={isConnected ? "default" : "outline"} className={isConnected ? getIndicatorColor() : ""}>
                 {isConnected ? "Connected" : "Disconnected"}
               </Badge>
             </div>
           )}
           
-          {/* Control Buttons */}
-          <div className="flex w-full gap-3">
+          {/* Mic and End Call Buttons */}
+          <div className="flex w-full justify-center gap-4">
             <Button 
               onClick={handleMicToggle}
-              variant={isListening ? "destructive" : "outline"}
-              className="flex-1"
+              variant={isListening ? "destructive" : "default"}
+              size="lg"
+              className={`h-16 w-16 rounded-full ${!isListening ? getIndicatorColor() : ''}`}
               disabled={isLoading}
             >
-              {isListening ? <X size={18} className="mr-2" /> : <Mic size={18} className="mr-2" />}
-              {isListening ? "Stop Mic" : "Mic"}
+              {isLoading ? (
+                <Loader2 className="h-6 w-6 animate-spin" />
+              ) : isListening ? (
+                <X className="h-6 w-6" />
+              ) : (
+                <Mic className="h-6 w-6" />
+              )}
             </Button>
             
-            {!isConnected ? (
+            {isConnected && (
               <Button 
-                onClick={handlePlayToggle} 
-                variant={isPlaying ? "destructive" : "default"}
-                className={`flex-1 ${isPlaying ? "" : audioTracks[selectedTrack].color}`}
-                disabled={isConnected || isLoading}
+                onClick={endSession}
+                variant="destructive"
+                size="lg"
+                className="h-16 w-16 rounded-full"
               >
-                {isPlaying ? <X size={18} className="mr-2" /> : <Play size={18} className="mr-2" />}
-                {isPlaying ? "Stop" : "Play"}
-              </Button>
-            ) : null}
-            
-            {!isConnected ? (
-              <Button 
-                onClick={initializeUltravoxSession} 
-                variant="outline"
-                className="flex-1"
-                disabled={isLoading}
-              >
-                <Info size={18} className="mr-2" />
-                Connect AI
-              </Button>
-            ) : (
-              <Button 
-                onClick={endSession} 
-                variant="outline"
-                className="flex-1"
-                disabled={isLoading}
-              >
-                <X size={18} className="mr-2" />
-                Disconnect
+                <Phone className="h-6 w-6 transform rotate-135" />
               </Button>
             )}
           </div>
-          
-          {/* Output Mode Controls (when connected) */}
-          {isConnected && (
-            <div className="flex w-full gap-3">
-              <Button 
-                onClick={setOutputToVoice}
-                variant="outline"
-                className="flex-1"
-                disabled={isLoading}
-              >
-                <Volume2 size={18} className="mr-2" />
-                Voice Mode
-              </Button>
-              <Button 
-                onClick={setOutputToText}
-                variant="outline"
-                className="flex-1"
-                disabled={isLoading}
-              >
-                <Info size={18} className="mr-2" />
-                Text Mode
-              </Button>
-            </div>
-          )}
           
           {/* Status Text */}
           <div className="w-full text-center text-sm text-muted-foreground">
             {getStatusText()}
           </div>
-          
-          {/* Error Display */}
-          {error && (
-            <div className="w-full p-3 bg-red-500/20 text-red-600 dark:text-red-400 rounded-md">
-              <p className="text-sm">{error}</p>
-            </div>
-          )}
         </CardContent>
       </Card>
       
-      {/* Audio elements for sample playback */}
+      {/* Error Dialog */}
+      <Dialog open={errorDialogOpen} onOpenChange={setErrorDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Error</DialogTitle>
+            <DialogDescription>
+              {errorMessage}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end">
+            <Button onClick={() => setErrorDialogOpen(false)}>Close</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Audio element for click sound */}
       <audio ref={audioRef} className="hidden" />
     </div>
   );
-} 
+}
