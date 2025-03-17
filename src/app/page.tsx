@@ -42,27 +42,37 @@ const systemPrompts = {
 }
 
 // Assign a color to each voice based on its name (for consistency)
+// Update the getVoiceColor function to assign specific colors to our three voices
 const getVoiceColor = (voiceName: string): string => {
+  // Convert name to lowercase for case-insensitive matching
+  const nameLower = voiceName.toLowerCase();
+  
+  // Directly assign colors to our three specific voices
+  if (nameLower.includes("emily")) {
+    return "bg-emerald-500"; // Emily gets green
+  } else if (nameLower.includes("mark") && !nameLower.includes("slow")) {
+    return "bg-violet-500"; // Mark gets violet/purple
+  } else if (nameLower.includes("aaron")) {
+    return "bg-amber-500"; // Aaron gets amber/orange
+  }
+  
+  // Fallback color assignment for any other voices
   const colors = [
-    "bg-emerald-500",
-    "bg-violet-500",
-    "bg-amber-500",
-    "bg-red-500",
     "bg-blue-500",
     "bg-pink-500",
     "bg-teal-500",
-  ]
-
+  ];
+  
   // Hash the name to get a consistent color
-  let hash = 0
+  let hash = 0;
   for (let i = 0; i < voiceName.length; i++) {
-    hash = (hash << 5) - hash + voiceName.charCodeAt(i)
-    hash |= 0 // Convert to 32bit integer
+    hash = (hash << 5) - hash + voiceName.charCodeAt(i);
+    hash |= 0; // Convert to 32bit integer
   }
-
+  
   // Use absolute value and modulo to get index within colors array
-  const colorIndex = Math.abs(hash) % colors.length
-  return colors[colorIndex]
+  const colorIndex = Math.abs(hash) % colors.length;
+  return colors[colorIndex];
 }
 
 // Connection states
@@ -252,6 +262,7 @@ const fetchVoices = async () => {
   // Set fallback personas if voice API fails
  // Set fallback personas if voice API fails
 // Set fallback personas if voice API fails
+// Set fallback personas if voice API fails
 const setFallbackPersonas = () => {
   const fallbackPersonas = [
     {
@@ -259,7 +270,7 @@ const setFallbackPersonas = () => {
       name: "Emily",
       systemPrompt: systemPrompts.general,
       voice: "87691b77-0174-4808-b73c-30000b334e14",
-      color: "bg-emerald-500",
+      color: "bg-emerald-500", // Explicitly set Emily to green
       icon: <Bot className="h-4 w-4" />,
       description: "A natural-sounding American English voice assistant.",
     },
@@ -268,7 +279,7 @@ const setFallbackPersonas = () => {
       name: "Mark",
       systemPrompt: systemPrompts.general,
       voice: "91fa9bcf-93c8-467c-8b29-973720e3f167",
-      color: "bg-violet-500",
+      color: "bg-violet-500", // Violet for Mark
       icon: <Bot className="h-4 w-4" />,
       description: "A clear male English voice assistant.",
     },
@@ -277,7 +288,7 @@ const setFallbackPersonas = () => {
       name: "Aaron",
       systemPrompt: systemPrompts.technical,
       voice: "feccf00b-417e-4e7a-9f89-62f537280334",
-      color: "bg-amber-500",
+      color: "bg-amber-500", // Amber for Aaron
       icon: <Bot className="h-4 w-4" />,
       description: "A technical specialist with an American English voice.",
     },
