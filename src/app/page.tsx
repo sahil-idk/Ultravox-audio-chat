@@ -179,9 +179,8 @@ export default function AudioVisualizer() {
     }
   }, [isConnected, transcript, conversation])
 
-  // Fetch available voices from Ultravox API
-  // Fetch available voices from Ultravox API
-// Fetch available voices from Ultravox API
+
+
 const fetchVoices = async () => {
   try {
     setIsLoadingVoices(true)
@@ -224,14 +223,20 @@ const fetchVoices = async () => {
           prompt = systemPrompts.creative
         }
 
+        // Clean up the name - remove "-English" suffix
+        let displayName = voice.name || "Unknown Voice";
+        if (displayName.includes("-English")) {
+          displayName = displayName.replace("-English", "");
+        }
+
         return {
           id: voice.voiceId,
-          name: voice.name || "Unknown Voice",
+          name: displayName,
           systemPrompt: prompt,
           voice: voice.voiceId,
-          color: getVoiceColor(voice.name || ""),
+          color: 'bg-emerald-500', // All voices use the same emerald color
           icon: <Bot className="h-4 w-4" />,
-          description: voice.description || `Voice assistant using ${voice.name}`,
+          description: voice.description || `Voice assistant using ${displayName}`,
         }
       })
 
@@ -259,10 +264,7 @@ const fetchVoices = async () => {
   }
 }
 
-  // Set fallback personas if voice API fails
- // Set fallback personas if voice API fails
-// Set fallback personas if voice API fails
-// Set fallback personas if voice API fails
+
 const setFallbackPersonas = () => {
   const fallbackPersonas = [
     {
@@ -270,7 +272,7 @@ const setFallbackPersonas = () => {
       name: "Emily",
       systemPrompt: systemPrompts.general,
       voice: "87691b77-0174-4808-b73c-30000b334e14",
-      color: "bg-emerald-500", // Explicitly set Emily to green
+      color: "bg-emerald-500", // All using emerald color
       icon: <Bot className="h-4 w-4" />,
       description: "A natural-sounding American English voice assistant.",
     },
@@ -279,7 +281,7 @@ const setFallbackPersonas = () => {
       name: "Mark",
       systemPrompt: systemPrompts.general,
       voice: "91fa9bcf-93c8-467c-8b29-973720e3f167",
-      color: "bg-violet-500", // Violet for Mark
+      color: "bg-emerald-500", // All using emerald color
       icon: <Bot className="h-4 w-4" />,
       description: "A clear male English voice assistant.",
     },
@@ -288,7 +290,7 @@ const setFallbackPersonas = () => {
       name: "Aaron",
       systemPrompt: systemPrompts.technical,
       voice: "feccf00b-417e-4e7a-9f89-62f537280334",
-      color: "bg-amber-500", // Amber for Aaron
+      color: "bg-emerald-500", // All using emerald color
       icon: <Bot className="h-4 w-4" />,
       description: "A technical specialist with an American English voice.",
     },
@@ -759,30 +761,31 @@ const setFallbackPersonas = () => {
     <div className="min-h-screen flex flex-col items-center justify-center p-3 sm:p-4 bg-background text-foreground">
       <Card className="w-full max-w-md mx-auto">
         <CardHeader className="flex flex-row items-center justify-between p-3 sm:p-4">
-          <CardTitle className="flex items-center gap-2 text-lg sm:text-xl">
-            <Music size={22} className={currentBot?.color || "text-emerald-500 "} />
+          <CardTitle className="flex items-center gap-2 text-lg sm:text-md">
+          <Music size={24} className="text-emerald-500" />
             Voice Assistant
           </CardTitle>
-          <div className="flex items-center gap-x-1 sm:gap-x-2">
-            <Badge variant="outline" className="text-xs">AI Voice</Badge>
-            <ThemeToggle />
+          <div className="flex items-center  ">
+            {/* <Badge variant="outline" className="text-xs">AI Voice</Badge> */}
+            <ThemeToggle  />
           </div>
         </CardHeader>
         <CardContent className="flex flex-col items-center space-y-1 sm:space-y-2 p-3 sm:p-4">
           {/* Voice Tabs */}
-          <div className="w-full grid grid-cols-3 gap-1">
-            {botPersonas.slice(0, 3).map((bot) => (
-              <Button
-                key={bot.id}
-                onClick={() => handleVoiceChange(bot.id)}
-                variant={selectedVoice === bot.id ? "default" : "outline"}
-                className={`text-xs px-1 ${selectedVoice === bot.id ? bot.color : ""}`}
-                disabled={isLoadingVoices || connectionState === ConnectionState.CONNECTING || isConnected}
-              >
-                {bot.name}
-              </Button>
-            ))}
-          </div>
+          {/* Voice Tabs */}
+<div className="w-full grid grid-cols-3 gap-2">
+  {botPersonas.slice(0, 3).map((bot) => (
+    <Button
+      key={bot.id}
+      onClick={() => handleVoiceChange(bot.id)}
+      variant={selectedVoice === bot.id ? "default" : "outline"}
+      className={selectedVoice === bot.id ? "bg-emerald-500" : ""}
+      disabled={isLoadingVoices || connectionState === ConnectionState.CONNECTING || isConnected}
+    >
+      {bot.name}
+    </Button>
+  ))}
+</div>
 
           {/* Indicator Circle */}
           <div className="relative h-44 sm:h-52 w-44 sm:w-52 flex items-center justify-center">
@@ -791,7 +794,7 @@ const setFallbackPersonas = () => {
 
             {/* Active indicator with motion */}
             <motion.div
-              className={`rounded-full ${currentBot?.color || "bg-emerald-500"} flex items-center justify-center`}
+              className={`rounded-full  bg-emerald-500 flex items-center justify-center`}
               animate={{
                 width: `${currentSize}px`,
                 height: `${currentSize}px`,
@@ -871,7 +874,7 @@ const setFallbackPersonas = () => {
               {isConnected ? (
                 <>
                   <motion.span
-                    className={`inline-block w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full ${currentBot?.color || "bg-emerald-500"} mr-1.5 sm:mr-2`}
+                    className={`inline-block w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-emerald-500 mr-1.5 sm:mr-2`}
                     animate={{ opacity: [0.5, 1, 0.5] }}
                     transition={{ duration: 1.5, repeat: Number.POSITIVE_INFINITY }}
                   />
