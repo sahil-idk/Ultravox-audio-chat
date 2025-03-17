@@ -170,128 +170,123 @@ export default function AudioVisualizer() {
   }, [isConnected, transcript, conversation])
 
   // Fetch available voices from Ultravox API
-  const fetchVoices = async () => {
-    try {
-      setIsLoadingVoices(true)
+  // Fetch available voices from Ultravox API
+// Fetch available voices from Ultravox API
+const fetchVoices = async () => {
+  try {
+    setIsLoadingVoices(true)
 
-      const response = await fetch("/api/create-ultravox-call", {
-        method: "GET",
+    const response = await fetch("/api/create-ultravox-call", {
+      method: "GET",
+    })
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch voices: ${response.status}`)
+    }
+
+    const data = await response.json()
+
+    // Filter to only include our three desired voices:
+    // Emily-English, Mark (not Mark-Slow), and Aaron-English
+    const filteredVoices = data.filter((voice: UltravoxVoice) => {
+      const voiceName = voice.name?.toLowerCase() || "";
+      return (
+        voiceName.includes("emily-english") || 
+        (voiceName === "mark" && !voiceName.includes("slow")) || 
+        voiceName.includes("aaron-english")
+      );
+    });
+
+    if (filteredVoices.length > 0) {
+      setAvailableVoices(filteredVoices)
+
+      // Create personas from the filtered voices
+      const personas: BotPersona[] = filteredVoices.map((voice: UltravoxVoice) => {
+        // Choose a system prompt based on the voice name pattern
+        let prompt = systemPrompts.general
+        const voiceLower = voice.name?.toLowerCase() || ""
+
+        if (voiceLower.includes("customer") || voiceLower.includes("service")) {
+          prompt = systemPrompts.customer
+        } else if (voiceLower.includes("tech") || voiceLower.includes("support")) {
+          prompt = systemPrompts.technical
+        } else if (voiceLower.includes("creative") || voiceLower.includes("writer")) {
+          prompt = systemPrompts.creative
+        }
+
+        return {
+          id: voice.voiceId,
+          name: voice.name || "Unknown Voice",
+          systemPrompt: prompt,
+          voice: voice.voiceId,
+          color: getVoiceColor(voice.name || ""),
+          icon: <Bot className="h-4 w-4" />,
+          description: voice.description || `Voice assistant using ${voice.name}`,
+        }
       })
 
-      if (!response.ok) {
-        throw new Error(`Failed to fetch voices: ${response.status}`)
+      setBotPersonas(personas)
+
+      // Set default voice to Emily-English if available, otherwise fall back to first voice
+      const emilyVoice = filteredVoices.find((voice: UltravoxVoice) => 
+        voice.name?.toLowerCase().includes("emily")
+      );
+      
+      if (emilyVoice) {
+        setSelectedVoice(emilyVoice.voiceId)
+      } else if (filteredVoices.length > 0) {
+        setSelectedVoice(filteredVoices[0].voiceId)
       }
-
-      const data = await response.json()
-
-      // Ensure the data is in the expected format
-      // Find default voice - prefer Elihiz/Emily
-      const findDefaultVoice = (voices: UltravoxVoice[]) => {
-        // First try to find Elihiz
-        const elihizVoice = voices.find((voice) => voice.name?.toLowerCase().includes("elihiz"))
-
-        if (elihizVoice) return elihizVoice.voiceId
-
-        // Next try for Emily (might be a similar female voice)
-        const emilyVoice = voices.find((voice) => voice.name?.toLowerCase().includes("emily"))
-
-        if (emilyVoice) return emilyVoice.voiceId
-
-        // Fall back to first female voice or just first voice
-        const femaleVoice = voices.find(
-          (voice) =>
-            voice.name?.toLowerCase().includes("female") || voice.description?.toLowerCase().includes("female"),
-        )
-
-        if (femaleVoice) return femaleVoice.voiceId
-
-        // Last resort: first available voice
-        return voices.length > 0 ? voices[0].voiceId : ""
-      }
-
-      if (Array.isArray(data)) {
-        setAvailableVoices(data)
-
-        // Create personas from the voices
-        const personas: BotPersona[] = data.map((voice: UltravoxVoice) => {
-          // Choose a system prompt based on the voice name pattern
-          let prompt = systemPrompts.general
-          const voiceLower = voice.name?.toLowerCase() || ""
-
-          if (voiceLower.includes("customer") || voiceLower.includes("service")) {
-            prompt = systemPrompts.customer
-          } else if (voiceLower.includes("tech") || voiceLower.includes("support")) {
-            prompt = systemPrompts.technical
-          } else if (voiceLower.includes("creative") || voiceLower.includes("writer")) {
-            prompt = systemPrompts.creative
-          }
-
-          return {
-            id: voice.voiceId,
-            name: voice.name || "Unknown Voice",
-            systemPrompt: prompt,
-            voice: voice.voiceId,
-            color: getVoiceColor(voice.name || ""),
-            icon: <Bot className="h-4 w-4" />,
-            description: voice.description || `Voice assistant using ${voice.name}`,
-          }
-        })
-
-        setBotPersonas(personas)
-
-        // Set default voice to Elihiz or similar female voice
-        const defaultVoiceId = findDefaultVoice(data)
-        if (defaultVoiceId) {
-          setSelectedVoice(defaultVoiceId)
-        }
-      } else {
-        // If the API doesn't return an array, use fallback personas
-        setFallbackPersonas()
-      }
-    } catch (error) {
-      console.error("Error fetching voices:", error)
+    } else {
+      // If no voices match our filter or API doesn't return expected format, use fallback personas
       setFallbackPersonas()
-    } finally {
-      setIsLoadingVoices(false)
     }
+  } catch (error) {
+    console.error("Error fetching voices:", error)
+    setFallbackPersonas()
+  } finally {
+    setIsLoadingVoices(false)
   }
+}
 
   // Set fallback personas if voice API fails
-  const setFallbackPersonas = () => {
-    const fallbackPersonas = [
-      {
-        id: "Mark",
-        name: "Mark",
-        systemPrompt: systemPrompts.general,
-        voice: "Mark",
-        color: "bg-emerald-500",
-        icon: <Bot className="h-4 w-4" />,
-        description: "A general-purpose assistant that can help with a variety of topics.",
-      },
-      {
-        id: "Emily",
-        name: "Emily",
-        systemPrompt: systemPrompts.customer,
-        voice: "Emily",
-        color: "bg-violet-500",
-        icon: <Bot className="h-4 w-4" />,
-        description: "A friendly customer service representative.",
-      },
-      {
-        id: "Josh",
-        name: "Josh",
-        systemPrompt: systemPrompts.technical,
-        voice: "Josh",
-        color: "bg-amber-500",
-        icon: <Bot className="h-4 w-4" />,
-        description: "A technical support specialist.",
-      },
-    ]
+ // Set fallback personas if voice API fails
+// Set fallback personas if voice API fails
+const setFallbackPersonas = () => {
+  const fallbackPersonas = [
+    {
+      id: "87691b77-0174-4808-b73c-30000b334e14", // Emily-English voice ID
+      name: "Emily",
+      systemPrompt: systemPrompts.general,
+      voice: "87691b77-0174-4808-b73c-30000b334e14",
+      color: "bg-emerald-500",
+      icon: <Bot className="h-4 w-4" />,
+      description: "A natural-sounding American English voice assistant.",
+    },
+    {
+      id: "91fa9bcf-93c8-467c-8b29-973720e3f167", // Mark voice ID
+      name: "Mark",
+      systemPrompt: systemPrompts.general,
+      voice: "91fa9bcf-93c8-467c-8b29-973720e3f167",
+      color: "bg-violet-500",
+      icon: <Bot className="h-4 w-4" />,
+      description: "A clear male English voice assistant.",
+    },
+    {
+      id: "feccf00b-417e-4e7a-9f89-62f537280334", // Aaron-English voice ID
+      name: "Aaron",
+      systemPrompt: systemPrompts.technical,
+      voice: "feccf00b-417e-4e7a-9f89-62f537280334",
+      color: "bg-amber-500",
+      icon: <Bot className="h-4 w-4" />,
+      description: "A technical specialist with an American English voice.",
+    },
+  ]
 
-    setBotPersonas(fallbackPersonas)
-    setSelectedVoice(fallbackPersonas[0].id)
-  }
-
+  setBotPersonas(fallbackPersonas)
+  // Set Emily as the default voice
+  setSelectedVoice(fallbackPersonas[0].id)
+}
   // Auto-scroll the transcript container
   useEffect(() => {
     if (transcriptContainerRef.current) {
