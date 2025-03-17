@@ -86,8 +86,8 @@ const BOT_PERSONAS: BotPersona[] = [
 ];
 
 // Application title and footer
-const APP_TITLE = "Voice AI Assistant";
-const APP_FOOTER = "Voice AI Demo © 2025";
+const APP_TITLE = "Voice AI Demo";
+const APP_FOOTER = "Dot Vector Voice Research © 2025";
 
 // =============================================
 // END OF BOT CONFIGURATION
@@ -863,7 +863,7 @@ Initial greeting: ${customPrompt}`,
   <Button
     onClick={isConnected ? endSession : handleMicToggle}
     variant={isConnected ? "destructive" : "outline"}
-    className="flex-1"
+    className="flex-1 py-5"
   >
     {connectionState === ConnectionState.CONNECTING ? (
       <>
@@ -872,12 +872,12 @@ Initial greeting: ${customPrompt}`,
       </>
     ) : isConnected ? (
       <>
-        <X className="mr-2" size={18} />
+        <X className="mr-2" size={20} />
         Stop Session
       </>
     ) : (
       <>
-        <Play className="mr-2" size={18} />
+        <Play className="mr-2" size={20} />
         Start Session
       </>
     )}
@@ -885,9 +885,7 @@ Initial greeting: ${customPrompt}`,
 </div>
 
           {/* Status Text */}
-          <div className="w-full text-center text-xs sm:text-sm text-muted-foreground mt-1">
-            {isConnected ? "Click button to end session" : "Click button to start session"}
-          </div>
+          
         </CardContent>
       </Card>
 
