@@ -698,8 +698,8 @@ const setFallbackPersonas = () => {
       }
     }
     return {
-      baseSize: 100, // Smaller base size for desktop
-      maxExpansion: 70, // Less expansion on desktop
+      baseSize: 120, // Smaller base size for desktop
+      maxExpansion: 80, // Less expansion on desktop
     }
   }
 
@@ -758,19 +758,19 @@ const setFallbackPersonas = () => {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-3 sm:p-4 bg-background text-foreground">
-      <Card className="w-full max-w-md mx-auto">
-        <CardHeader className="flex flex-row items-center justify-between p-3 sm:p-4">
+    <div className="min-h-screen flex flex-col items-center justify-center p-5 sm:p-10 bg-background text-foreground">
+      <Card className="w-full max-w-md ">
+        <CardHeader className="flex flex-row items-center justify-between ">
           <CardTitle className="flex items-center gap-2 text-lg sm:text-md">
           <Music size={24} className="text-emerald-500" />
-            Voice Assistant
+            Voice AI Demo 
           </CardTitle>
-          <div className="flex items-center  ">
+          <div className="flex items-center gap-3 ">
             {/* <Badge variant="outline" className="text-xs">AI Voice</Badge> */}
             <ThemeToggle  />
           </div>
         </CardHeader>
-        <CardContent className="flex flex-col items-center space-y-1 sm:space-y-2 p-3 sm:p-4">
+        <CardContent className="flex flex-col items-center space-y-4 sm:space-y-6 ">
           {/* Voice Tabs */}
           {/* Voice Tabs */}
 <div className="w-full grid grid-cols-3 gap-2">
@@ -788,9 +788,9 @@ const setFallbackPersonas = () => {
 </div>
 
           {/* Indicator Circle */}
-          <div className="relative h-44 sm:h-52 w-44 sm:w-52 flex items-center justify-center">
+          <div className="relative h-44 sm:h-72 w-44 sm:w-72 flex items-center justify-center">
             {/* Outer reference circle */}
-            <div className="absolute w-32 sm:w-36 h-32 sm:h-36 rounded-full border border-muted" />
+            <div className="absolute w-32 sm:w-48 h-32 sm:h-48 rounded-full border border-muted" />
 
             {/* Active indicator with motion */}
             <motion.div
@@ -807,10 +807,10 @@ const setFallbackPersonas = () => {
               transition={{ duration: 0.1 }}
             >
               {connectionState === ConnectionState.CONNECTING ? (
-                <Loader2 size={22} className="text-white animate-spin" />
+                <Loader2 size={28} className="text-white animate-spin" />
               ) : isConnected ? (
                 <div className="text-white">
-                  {sessionState === "speaking" ? <Volume2 size={22} /> : <Mic size={22} />}
+                  {sessionState === "speaking" ? <Volume2 size={28} /> : <Mic size={28} />}
                 </div>
               ) : null}
             </motion.div>
