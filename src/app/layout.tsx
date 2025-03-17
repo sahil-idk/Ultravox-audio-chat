@@ -9,8 +9,8 @@ const jetBrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Creek | Audio Indicator",
-  description: "Creek is a simple audio indicator which animates based on the audio level.",
+  title: "Dot Vector Voice AI",
+  description: "An interactive voice assistant demonstration featuring Emily, a friendly Pizza Hut assistant who can provide menu information, answer questions about deals, and help with ordering. Built with Next.js, Tailwind CSS, and the Ultravox Voice AI API ",
 };
 
 export default function RootLayout({

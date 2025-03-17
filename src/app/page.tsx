@@ -760,7 +760,7 @@ Initial greeting: ${customPrompt}`,
                 key={bot.id}
                 onClick={() => handleVoiceChange(bot.id)}
                 variant={selectedVoice === bot.id ? "default" : "outline"}
-                className={selectedVoice === bot.id ? "bg-emerald-500" : ""}
+                className={selectedVoice === bot.id ? "bg-emerald-500" : "border-emerald-500"}
                 disabled={isLoadingVoices || connectionState === ConnectionState.CONNECTING || isConnected}
               >
                 {bot.name}
@@ -859,11 +859,11 @@ Initial greeting: ${customPrompt}`,
 
           {/* Control Button */}
         {/* Control Button */}
-<div className="flex w-full justify-center mt-2">
+<div className="flex w-full justify-center ">
   <Button
     onClick={isConnected ? endSession : handleMicToggle}
     variant={isConnected ? "destructive" : "outline"}
-    className="flex-1 py-5"
+    className="flex-1 py-5 bg-emerald-500"
   >
     {connectionState === ConnectionState.CONNECTING ? (
       <>
