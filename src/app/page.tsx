@@ -1,9 +1,10 @@
+/* eslint-disable react-hooks/rules-of-hooks */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client"
 
 import { useState, useEffect, useRef, type JSX } from "react"
-import { Mic, X, Volume2, Loader2, Bot, Music } from "lucide-react"
+import { Mic, X, Volume2, Loader2, Bot, Music, Play } from "lucide-react"
 import { motion } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -11,6 +12,7 @@ import { Badge } from "@/components/ui/badge"
 import { ThemeToggle } from "@/components/toggle"
 import { UltravoxSession, UltravoxSessionStatus } from "ultravox-client"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
+
 
 // Voice interface from Ultravox API
 interface UltravoxVoice {
@@ -24,41 +26,84 @@ interface BotPersona {
   id: string
   name: string
   systemPrompt: string
+  initialGreeting: string
   voice: string
   color: string
   icon: JSX.Element
   description: string
 }
 
-// System prompts for different assistant types
-const systemPrompts = {
-  general: "You are a helpful AI assistant talking to a user. Keep your responses helpful and concise.",
-  customer:
-    "You are a friendly customer service representative. Help the customer with their questions and concerns in a professional and friendly manner.",
-  technical:
-    "You are a technical support agent helping users troubleshoot problems with their devices. Be patient, methodical, and clear in your explanations.",
-  creative:
-    "You are a creative assistant helping users with generating ideas, writing content, and brainstorming. Be imaginative and enthusiastic.",
+// Connection states
+const ConnectionState = {
+  IDLE: "idle",
+  CONNECTING: "connecting",
+  CONNECTED: "connected",
+  ERROR: "error",
 }
 
-// Assign a color to each voice based on its name (for consistency)
-// Update the getVoiceColor function to assign specific colors to our three voices
+// =============================================
+// BOT CONFIGURATION - EDIT HERE
+// =============================================
+
+// Define your bot personas here - easy to modify
+const BOT_PERSONAS: BotPersona[] = [
+  {
+    id: "emily-bot", // This ID is used for custom prompts with useVoicePrompts hook
+    name: "Emily",
+    systemPrompt: 
+      "You are Emily, a friendly Pizza Hut assistant. You provide helpful information about Pizza Hut's menu, deals, locations, and ordering options. Keep your responses concise, friendly, and focused on Pizza Hut offerings. If asked about items not on the Pizza Hut menu, politely redirect to available options. You should know about popular pizzas like Pepperoni Lovers, Meat Lovers, Veggie Lovers, and Supreme, as well as sides like breadsticks, wings, and desserts like Hershey's cookies.",
+    initialGreeting: 
+      "Hi there! I'm Emily, your Pizza Hut assistant. How can I help you today? I can tell you about our menu, deals, or help you place an order!",
+    voice: "87691b77-0174-4808-b73c-30000b334e14", // Emily-English voice ID
+    color: "bg-emerald-500",
+    icon: <Bot className="h-4 w-4" />,
+    description: "Meet Emily, your friendly Pizza Hut assistant! Ask about the menu, deals, and more."
+  },
+  {
+    id: "mark-bot", // This ID is used for custom prompts with useVoicePrompts hook
+    name: "Mark",
+    systemPrompt: 
+      "You are Mark, a technical support agent for computer hardware and software. Help users troubleshoot problems with their devices, provide step-by-step instructions, and recommend solutions. Be patient, methodical, and clear in your explanations. Focus on common issues with computers, smartphones, and other consumer electronics.",
+    initialGreeting: 
+      "Hello, I'm Mark from technical support. What seems to be the issue with your device today?",
+    voice: "91fa9bcf-93c8-467c-8b29-973720e3f167", // Mark voice ID
+    color: "bg-emerald-500",
+    icon: <Bot className="h-4 w-4" />,
+    description: "Mark provides technical support for your computer and device problems."
+  },
+  {
+    id: "aaron-bot", // This ID is used for custom prompts with useVoicePrompts hook
+    name: "Aaron",
+    systemPrompt: 
+      "You are Aaron, a creative writing assistant who helps with generating ideas, writing content, and brainstorming. You're imaginative, enthusiastic, and skilled in various writing styles from formal to casual. You can help with stories, essays, blog posts, marketing copy, and more. Provide constructive feedback when asked.",
+    initialGreeting: 
+      "Hi! I'm Aaron, your creative writing assistant. What kind of content can I help you create today?",
+    voice: "feccf00b-417e-4e7a-9f89-62f537280334", // Aaron-English voice ID
+    color: "bg-emerald-500",
+    icon: <Bot className="h-4 w-4" />,
+    description: "Aaron is your creative writing partner for ideas, content, and feedback."
+  }
+];
+
+// Application title and footer
+const APP_TITLE = "Voice AI Assistant";
+const APP_FOOTER = "Voice AI Demo © 2025";
+
+// =============================================
+// END OF BOT CONFIGURATION
+// =============================================
+
+// Assign a color based on the voice name (for consistency)
 const getVoiceColor = (voiceName: string): string => {
   // Convert name to lowercase for case-insensitive matching
   const nameLower = voiceName.toLowerCase();
   
-  // Directly assign colors to our three specific voices
-  if (nameLower.includes("emily")) {
-    return "bg-emerald-500"; // Emily gets green
-  } else if (nameLower.includes("mark") && !nameLower.includes("slow")) {
-    return "bg-violet-500"; // Mark gets violet/purple
-  } else if (nameLower.includes("aaron")) {
-    return "bg-amber-500"; // Aaron gets amber/orange
-  }
-  
-  // Fallback color assignment for any other voices
+  // Fallback color assignment for any voices
   const colors = [
     "bg-blue-500",
+    "bg-emerald-500",
+    "bg-violet-500",
+    "bg-amber-500",
     "bg-pink-500",
     "bg-teal-500",
   ];
@@ -75,24 +120,16 @@ const getVoiceColor = (voiceName: string): string => {
   return colors[colorIndex];
 }
 
-// Connection states
-const ConnectionState = {
-  IDLE: "idle",
-  CONNECTING: "connecting",
-  CONNECTED: "connected",
-  ERROR: "error",
-}
-
 export default function AudioVisualizer() {
   const [isListening, setIsListening] = useState(false)
   const [audioLevel, setAudioLevel] = useState(0)
-  const [selectedVoice, setSelectedVoice] = useState<string>("")
+  const [selectedVoice, setSelectedVoice] = useState<string>(BOT_PERSONAS[0].id)
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [errorDialogOpen, setErrorDialogOpen] = useState(false)
   const [availableVoices, setAvailableVoices] = useState<UltravoxVoice[]>([])
-  const [botPersonas, setBotPersonas] = useState<BotPersona[]>([])
-  const [isLoadingVoices, setIsLoadingVoices] = useState(true)
+  const [botPersonas, setBotPersonas] = useState<BotPersona[]>(BOT_PERSONAS)
+  const [isLoadingVoices, setIsLoadingVoices] = useState(false)
   const [windowWidth, setWindowWidth] = useState(typeof window !== "undefined" ? window.innerWidth : 1024)
 
   // Connection state management
@@ -121,6 +158,9 @@ export default function AudioVisualizer() {
   const transcriptContainerRef = useRef<HTMLDivElement | null>(null)
   const connectionTimerRef = useRef<NodeJS.Timeout | null>(null)
 
+  // Get custom voice prompts
+  
+
   const SAMPLE_RATE = 16000 // Match with Ultravox requirements
 
   // Handle window resize
@@ -147,8 +187,8 @@ export default function AudioVisualizer() {
 
       audioRef.current = new Audio("/mixkit-select-click-1109.wav")
 
-      // Fetch available voices
-      fetchVoices()
+      // If you want to fetch voices from API, uncomment this
+      // fetchVoices()
 
       return () => {
         if (frameRef.current) {
@@ -179,127 +219,33 @@ export default function AudioVisualizer() {
     }
   }, [isConnected, transcript, conversation])
 
+  // This function would fetch voices from API if needed
+  // Currently using our predefined BOT_PERSONAS instead
+  const fetchVoices = async () => {
+    try {
+      setIsLoadingVoices(true)
 
-
-const fetchVoices = async () => {
-  try {
-    setIsLoadingVoices(true)
-
-    const response = await fetch("/api/create-ultravox-call", {
-      method: "GET",
-    })
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch voices: ${response.status}`)
-    }
-
-    const data = await response.json()
-
-    // Filter to only include our three desired voices:
-    // Emily-English, Mark (not Mark-Slow), and Aaron-English
-    const filteredVoices = data.filter((voice: UltravoxVoice) => {
-      const voiceName = voice.name?.toLowerCase() || "";
-      return (
-        voiceName.includes("emily-english") || 
-        (voiceName === "mark" && !voiceName.includes("slow")) || 
-        voiceName.includes("aaron-english")
-      );
-    });
-
-    if (filteredVoices.length > 0) {
-      setAvailableVoices(filteredVoices)
-
-      // Create personas from the filtered voices
-      const personas: BotPersona[] = filteredVoices.map((voice: UltravoxVoice) => {
-        // Choose a system prompt based on the voice name pattern
-        let prompt = systemPrompts.general
-        const voiceLower = voice.name?.toLowerCase() || ""
-
-        if (voiceLower.includes("customer") || voiceLower.includes("service")) {
-          prompt = systemPrompts.customer
-        } else if (voiceLower.includes("tech") || voiceLower.includes("support")) {
-          prompt = systemPrompts.technical
-        } else if (voiceLower.includes("creative") || voiceLower.includes("writer")) {
-          prompt = systemPrompts.creative
-        }
-
-        // Clean up the name - remove "-English" suffix
-        let displayName = voice.name || "Unknown Voice";
-        if (displayName.includes("-English")) {
-          displayName = displayName.replace("-English", "");
-        }
-
-        return {
-          id: voice.voiceId,
-          name: displayName,
-          systemPrompt: prompt,
-          voice: voice.voiceId,
-          color: 'bg-emerald-500', // All voices use the same emerald color
-          icon: <Bot className="h-4 w-4" />,
-          description: voice.description || `Voice assistant using ${displayName}`,
-        }
+      const response = await fetch("/api/create-ultravox-call", {
+        method: "GET",
       })
 
-      setBotPersonas(personas)
-
-      // Set default voice to Emily-English if available, otherwise fall back to first voice
-      const emilyVoice = filteredVoices.find((voice: UltravoxVoice) => 
-        voice.name?.toLowerCase().includes("emily")
-      );
-      
-      if (emilyVoice) {
-        setSelectedVoice(emilyVoice.voiceId)
-      } else if (filteredVoices.length > 0) {
-        setSelectedVoice(filteredVoices[0].voiceId)
+      if (!response.ok) {
+        throw new Error(`Failed to fetch voices: ${response.status}`)
       }
-    } else {
-      // If no voices match our filter or API doesn't return expected format, use fallback personas
-      setFallbackPersonas()
+
+      const data = await response.json()
+      setAvailableVoices(data)
+      
+      // We're using our predefined bot personas instead of creating them
+      // from the API response, but you could do that here if needed
+      
+    } catch (error) {
+      console.error("Error fetching voices:", error)
+    } finally {
+      setIsLoadingVoices(false)
     }
-  } catch (error) {
-    console.error("Error fetching voices:", error)
-    setFallbackPersonas()
-  } finally {
-    setIsLoadingVoices(false)
   }
-}
 
-
-const setFallbackPersonas = () => {
-  const fallbackPersonas = [
-    {
-      id: "87691b77-0174-4808-b73c-30000b334e14", // Emily-English voice ID
-      name: "Emily",
-      systemPrompt: systemPrompts.general,
-      voice: "87691b77-0174-4808-b73c-30000b334e14",
-      color: "bg-emerald-500", // All using emerald color
-      icon: <Bot className="h-4 w-4" />,
-      description: "A natural-sounding American English voice assistant.",
-    },
-    {
-      id: "91fa9bcf-93c8-467c-8b29-973720e3f167", // Mark voice ID
-      name: "Mark",
-      systemPrompt: systemPrompts.general,
-      voice: "91fa9bcf-93c8-467c-8b29-973720e3f167",
-      color: "bg-emerald-500", // All using emerald color
-      icon: <Bot className="h-4 w-4" />,
-      description: "A clear male English voice assistant.",
-    },
-    {
-      id: "feccf00b-417e-4e7a-9f89-62f537280334", // Aaron-English voice ID
-      name: "Aaron",
-      systemPrompt: systemPrompts.technical,
-      voice: "feccf00b-417e-4e7a-9f89-62f537280334",
-      color: "bg-emerald-500", // All using emerald color
-      icon: <Bot className="h-4 w-4" />,
-      description: "A technical specialist with an American English voice.",
-    },
-  ]
-
-  setBotPersonas(fallbackPersonas)
-  // Set Emily as the default voice
-  setSelectedVoice(fallbackPersonas[0].id)
-}
   // Auto-scroll the transcript container
   useEffect(() => {
     if (transcriptContainerRef.current) {
@@ -316,6 +262,10 @@ const setFallbackPersonas = () => {
       // Find the selected bot
       const botPersona = botPersonas.find((bot) => bot.id === selectedVoice) || botPersonas[0]
 
+      // Get any custom greeting from the hook, fallback to the default initial greeting
+      // This allows for custom prompts to override the defaults set in BOT_PERSONAS
+      const customPrompt =  botPersona.initialGreeting;
+      
       console.log("Creating call with voice:", botPersona.voice)
 
       const response = await fetch("/api/create-ultravox-call", {
@@ -324,7 +274,9 @@ const setFallbackPersonas = () => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          systemPrompt: botPersona.systemPrompt,
+          systemPrompt: `${botPersona.systemPrompt} 
+
+Initial greeting: ${customPrompt}`,
           voice: botPersona.voice,
           temperature: 0.7,
         }),
@@ -366,7 +318,6 @@ const setFallbackPersonas = () => {
       setConnectionProgress(0)
 
       // Start progress animation with improved timing
-      // First jump to 20% quickly to show immediate feedback
       setConnectionProgress(20)
 
       // Then continue with smoother progression
@@ -740,22 +691,54 @@ const setFallbackPersonas = () => {
   // Display status text based on session state
   const getStatusText = () => {
     if (connectionState === ConnectionState.CONNECTING) {
-      return `Connecting to ${currentBot?.name || "Assistant"}...`
+      return (
+        <div className="flex items-center">
+          <div className="w-2 h-2 bg-yellow-500 rounded-full mr-2 animate-pulse"></div>
+          Connecting to {currentBot?.name || "Assistant"}...
+        </div>
+      );
     }
-
-    if (!isConnected) return "Click microphone to start"
-
+  
+    if (!isConnected) {
+      return (
+        <div className="flex items-center">
+          <div className="w-2 h-2 bg-red-500 rounded-full mr-2"></div>
+          Click microphone to start
+        </div>
+      );
+    }
+  
     switch (sessionState) {
       case "speaking":
-        return `${currentBot?.name || "Assistant"} is speaking`
+        return (
+          <div className="flex items-center">
+            <div className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></div>
+            {currentBot?.name || "Assistant"} is speaking
+          </div>
+        );
       case "thinking":
-        return `${currentBot?.name || "Assistant"} is thinking`
+        return (
+          <div className="flex items-center">
+            <div className="w-2 h-2 bg-blue-500 rounded-full mr-2 animate-pulse"></div>
+            {currentBot?.name || "Assistant"} is thinking
+          </div>
+        );
       case "listening":
-        return `${currentBot?.name || "Assistant"} is listening`
+        return (
+          <div className="flex items-center">
+            <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
+            {currentBot?.name || "Assistant"} is listening
+          </div>
+        );
       default:
-        return "Ready"
+        return (
+          <div className="flex items-center">
+            <div className="w-2 h-2 bg-gray-500 rounded-full mr-2"></div>
+            Ready
+          </div>
+        );
     }
-  }
+  };
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-5 sm:p-10 bg-background text-foreground">
@@ -763,29 +746,32 @@ const setFallbackPersonas = () => {
         <CardHeader className="flex flex-row items-center justify-between ">
           <CardTitle className="flex items-center gap-2 text-lg sm:text-md">
           <Music size={24} className="text-emerald-500" />
-            Voice AI Demo 
+            {APP_TITLE}
           </CardTitle>
           <div className="flex items-center gap-3 ">
-            {/* <Badge variant="outline" className="text-xs">AI Voice</Badge> */}
             <ThemeToggle  />
           </div>
         </CardHeader>
         <CardContent className="flex flex-col items-center space-y-4 sm:space-y-6 ">
           {/* Voice Tabs */}
-          {/* Voice Tabs */}
-<div className="w-full grid grid-cols-3 gap-2">
-  {botPersonas.slice(0, 3).map((bot) => (
-    <Button
-      key={bot.id}
-      onClick={() => handleVoiceChange(bot.id)}
-      variant={selectedVoice === bot.id ? "default" : "outline"}
-      className={selectedVoice === bot.id ? "bg-emerald-500" : ""}
-      disabled={isLoadingVoices || connectionState === ConnectionState.CONNECTING || isConnected}
-    >
-      {bot.name}
-    </Button>
-  ))}
-</div>
+          <div className="w-full grid grid-cols-3 gap-2">
+            {botPersonas.slice(0, 3).map((bot) => (
+              <Button
+                key={bot.id}
+                onClick={() => handleVoiceChange(bot.id)}
+                variant={selectedVoice === bot.id ? "default" : "outline"}
+                className={selectedVoice === bot.id ? "bg-emerald-500" : ""}
+                disabled={isLoadingVoices || connectionState === ConnectionState.CONNECTING || isConnected}
+              >
+                {bot.name}
+              </Button>
+            ))}
+          </div>
+
+          {/* Bot Description */}
+          <div className="w-full text-center text-sm text-muted-foreground">
+            {currentBot?.description || "Voice assistant ready to help"}
+          </div>
 
           {/* Indicator Circle */}
           <div className="relative h-44 sm:h-72 w-44 sm:w-72 flex items-center justify-center">
@@ -830,17 +816,6 @@ const setFallbackPersonas = () => {
             </div>
           )}
 
-          {/* Audio level indicator */}
-          <div className="w-full h-1 bg-muted rounded-full overflow-hidden">
-            <motion.div
-              className={currentBot?.color || "bg-emerald-500"}
-              animate={{
-                width: `${Math.max(2, audioLevel * 100)}%`,
-              }}
-              transition={{ duration: 0.1 }}
-            />
-          </div>
-
           {/* Transcript Display - Only show when connected and has content */}
           {showTranscript && (
             <motion.div
@@ -869,50 +844,45 @@ const setFallbackPersonas = () => {
           )}
 
           {/* Status indicator */}
-          <div className="w-full p-2 sm:p-3 bg-muted/50 rounded-md flex items-center justify-between text-xs sm:text-sm">
-            <div className="flex items-center">
-              {isConnected ? (
-                <>
-                  <motion.span
-                    className={`inline-block w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-emerald-500 mr-1.5 sm:mr-2`}
-                    animate={{ opacity: [0.5, 1, 0.5] }}
-                    transition={{ duration: 1.5, repeat: Number.POSITIVE_INFINITY }}
-                  />
-                  <span>{getStatusText()}</span>
-                </>
-              ) : (
-                <>
-                  <span className="inline-block w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-muted-foreground mr-1.5 sm:mr-2"></span>
-                  <span className="text-muted-foreground">{getStatusText()}</span>
-                </>
-              )}
-            </div>
+         {/* Status indicator */}
+<div className="w-full p-2 sm:p-3 bg-muted/50 rounded-md flex items-center justify-between text-xs sm:text-sm">
+  <div className="flex items-center">
+    {getStatusText()}
+  </div>
 
-            {isConnected && (
-              <Badge variant="outline" className="font-mono text-xs">
-                {Math.round(audioLevel * 100)}%
-              </Badge>
-            )}
-          </div>
+  {isConnected && (
+    <Badge variant="outline" className="font-mono text-xs">
+      {Math.round(audioLevel * 100)}%
+    </Badge>
+  )}
+</div>
 
           {/* Control Button */}
-          <div className="flex w-full justify-center mt-2">
-            <Button
-              onClick={isConnected ? endSession : handleMicToggle}
-              variant={isConnected ? "destructive" : "default"}
-              size="lg"
-              className={`h-12 w-12 sm:h-14 sm:w-14 rounded-full ${isConnected ? "" : currentBot?.color || "bg-emerald-500"}`}
-              disabled={connectionState === ConnectionState.CONNECTING}
-            >
-              {connectionState === ConnectionState.CONNECTING ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : isConnected ? (
-                <X className="h-5 w-5" />
-              ) : (
-                <Mic className="h-5 w-5" />
-              )}
-            </Button>
-          </div>
+        {/* Control Button */}
+<div className="flex w-full justify-center mt-2">
+  <Button
+    onClick={isConnected ? endSession : handleMicToggle}
+    variant={isConnected ? "destructive" : "outline"}
+    className="flex-1"
+  >
+    {connectionState === ConnectionState.CONNECTING ? (
+      <>
+        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+        Connecting...
+      </>
+    ) : isConnected ? (
+      <>
+        <X className="mr-2" size={18} />
+        Stop Session
+      </>
+    ) : (
+      <>
+        <Play className="mr-2" size={18} />
+        Start Session
+      </>
+    )}
+  </Button>
+</div>
 
           {/* Status Text */}
           <div className="w-full text-center text-xs sm:text-sm text-muted-foreground mt-1">
@@ -937,7 +907,7 @@ const setFallbackPersonas = () => {
       {/* Audio element for click sound */}
       <audio ref={audioRef} className="hidden" />
 
-      <div className="mt-2 sm:mt-3 text-xs text-muted-foreground">Voice Assistant © 2025</div>
+      <div className="mt-2 sm:mt-3 text-xs text-muted-foreground">{APP_FOOTER}</div>
     </div>
   )
 }
