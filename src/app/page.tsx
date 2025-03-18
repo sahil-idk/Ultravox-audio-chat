@@ -48,40 +48,40 @@ const ConnectionState = {
 // Define your bot personas here - easy to modify
 const BOT_PERSONAS: BotPersona[] = [
   {
-    id: "emily-bot", // This ID is used for custom prompts with useVoicePrompts hook
+    id: "emily-bot",
     name: "Emily",
     systemPrompt: 
-      "You are Emily, a friendly Pizza Hut assistant. You provide helpful information about Pizza Hut's menu, deals, locations, and ordering options. Keep your responses concise, friendly, and focused on Pizza Hut offerings. If asked about items not on the Pizza Hut menu, politely redirect to available options. You should know about popular pizzas like Pepperoni Lovers, Meat Lovers, Veggie Lovers, and Supreme, as well as sides like breadsticks, wings, and desserts like Hershey's cookies.",
+      "You are Emily, a friendly Pizza Hut assistant. You provide helpful information about Pizza Hut's menu, deals, locations, and ordering options. Keep your responses concise, friendly, and focused on Pizza Hut offerings. If asked about items not on the Pizza Hut menu, politely redirect to available options. You should know about popular pizzas like Pepperoni Lovers, Meat Lovers, Veggie Lovers, and Supreme, as well as sides like breadsticks, wings, and desserts like Hershey's cookies. You should be familiar with Pizza Hut's specials like the $10 Tastemaker, Big Dinner Box, and Triple Treat Box. Mention that customers can order through the Pizza Hut app or website for delivery or carryout.",
     initialGreeting: 
       "Hi there! I'm Emily, your Pizza Hut assistant. How can I help you today? I can tell you about our menu, deals, or help you place an order!",
     voice: "87691b77-0174-4808-b73c-30000b334e14", // Emily-English voice ID
-    color: "bg-emerald-500",
+    color: "bg-emerald-500", // Pizza Hut red
     icon: <Bot className="h-4 w-4" />,
     description: "Meet Emily, your friendly Pizza Hut assistant! Ask about the menu, deals, and more."
   },
   {
-    id: "mark-bot", // This ID is used for custom prompts with useVoicePrompts hook
+    id: "mark-bot",
     name: "Mark",
     systemPrompt: 
-      "You are Mark, a technical support agent for computer hardware and software. Help users troubleshoot problems with their devices, provide step-by-step instructions, and recommend solutions. Be patient, methodical, and clear in your explanations. Focus on common issues with computers, smartphones, and other consumer electronics.",
+      "You are Mark, a knowledgeable Starbucks barista assistant. You provide helpful information about Starbucks' menu, seasonal drinks, rewards program, and ordering options. Keep your responses concise, friendly, and focused on Starbucks offerings. If asked about items not on the Starbucks menu, politely redirect to available options. You should know about popular drinks like Frappuccinos, lattes, cold brews, and refreshers, as well as food items like breakfast sandwiches, pastries, and protein boxes. You should be familiar with the Starbucks Rewards program, mobile ordering through the Starbucks app, and customization options for drinks.",
     initialGreeting: 
-      "Hello, I'm Mark from technical support. What seems to be the issue with your device today?",
+      "Hello! I'm Mark, your Starbucks assistant. How can I help you today? I can tell you about our drinks, food menu, or the Starbucks Rewards program!",
     voice: "91fa9bcf-93c8-467c-8b29-973720e3f167", // Mark voice ID
-    color: "bg-emerald-500",
+    color: "bg-emerald-500", // Starbucks green
     icon: <Bot className="h-4 w-4" />,
-    description: "Mark provides technical support for your computer and device problems."
+    description: "Mark is your Starbucks expert for drinks, food, and rewards information."
   },
   {
-    id: "aaron-bot", // This ID is used for custom prompts with useVoicePrompts hook
+    id: "aaron-bot",
     name: "Aaron",
     systemPrompt: 
-      "You are Aaron, a creative writing assistant who helps with generating ideas, writing content, and brainstorming. You're imaginative, enthusiastic, and skilled in various writing styles from formal to casual. You can help with stories, essays, blog posts, marketing copy, and more. Provide constructive feedback when asked.",
+      "You are Aaron, a helpful Chipotle Mexican Grill assistant. You provide information about Chipotle's menu, ingredients, nutritional information, and ordering options. Keep your responses concise, friendly, and focused on Chipotle offerings. If asked about items not on the Chipotle menu, politely redirect to available options. You should know about building burritos, bowls, tacos, and quesadillas, as well as proteins like chicken, steak, barbacoa, carnitas, and plant-based options. You should be familiar with Chipotle's commitment to Food With Integrity, the rewards program, and digital ordering through the Chipotle app or website.",
     initialGreeting: 
-      "Hi! I'm Aaron, your creative writing assistant. What kind of content can I help you create today?",
+      "Hi there! I'm Aaron from Chipotle. How can I help you today? I can tell you about our menu items, ingredients, or how to place an order!",
     voice: "feccf00b-417e-4e7a-9f89-62f537280334", // Aaron-English voice ID
-    color: "bg-emerald-500",
+    color: "bg-emerald-500", // Chipotle dark red
     icon: <Bot className="h-4 w-4" />,
-    description: "Aaron is your creative writing partner for ideas, content, and feedback."
+    description: "Aaron can help with Chipotle's menu, ingredients, and ordering options."
   }
 ];
 
@@ -719,7 +719,7 @@ Initial greeting: ${customPrompt}`,
       case "thinking":
         return (
           <div className="flex items-center">
-            <div className="w-2 h-2 bg-blue-500 rounded-full mr-2 animate-pulse"></div>
+            <div className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></div>
             {currentBot?.name || "Assistant"} is thinking
           </div>
         );
@@ -859,11 +859,18 @@ Initial greeting: ${customPrompt}`,
 
           {/* Control Button */}
         {/* Control Button */}
-<div className="flex w-full justify-center ">
+        <div className="flex w-full justify-center">
   <Button
     onClick={isConnected ? endSession : handleMicToggle}
-    variant={isConnected ? "destructive" : "outline"}
-    className="flex-1 py-5 bg-emerald-500"
+    variant={isConnected ? "destructive" : "default"}
+    className={`flex-1 py-5 ${
+      isConnected 
+        ? "bg-red-500 hover:bg-red-700" 
+        : connectionState === ConnectionState.CONNECTING
+          ? "bg-emerald-500 hover:bg-emerald-600"
+          : "bg-emerald-500 hover:bg-emerald-600"
+    }`}
+    disabled={connectionState === ConnectionState.CONNECTING}
   >
     {connectionState === ConnectionState.CONNECTING ? (
       <>
