@@ -759,8 +759,8 @@ Initial greeting: ${customPrompt}`,
               <Button
                 key={bot.id}
                 onClick={() => handleVoiceChange(bot.id)}
-                variant={selectedVoice === bot.id ? "default" : "outline"}
-                className={selectedVoice === bot.id ? "bg-emerald-500" : "border-emerald-500"}
+                variant={selectedVoice === bot.id ? "outline" : "outline"}
+                className={selectedVoice === bot.id ? "border-emerald-500" :""}
                 disabled={isLoadingVoices || connectionState === ConnectionState.CONNECTING || isConnected}
               >
                 {bot.name}
