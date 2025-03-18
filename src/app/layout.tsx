@@ -4,7 +4,6 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/components/auth-provider";
 import "./globals.css";
 
-// Ensure next.js doesn't try to statically optimize these routes
 export const dynamic = 'force-dynamic';
 
 const jetBrainsMono = JetBrains_Mono({

@@ -81,7 +81,7 @@ const BOT_PERSONAS: BotPersona[] = [
   }
 ];
 
-// Application title and footer
+
 const APP_TITLE = "Voice AI Demo";
 const APP_FOOTER = "Dot Vector Voice Research © 2025";
 
@@ -89,7 +89,7 @@ const APP_FOOTER = "Dot Vector Voice Research © 2025";
 // END OF BOT CONFIGURATION
 // =============================================
 
-// Assign a color based on the voice name (for consistency)
+
 const getVoiceColor = (voiceName: string): string => {
   // Convert name to lowercase for case-insensitive matching
   const nameLower = voiceName.toLowerCase();
@@ -841,7 +841,7 @@ Initial greeting: ${customPrompt}`,
             </motion.div>
           )}
 
-          {/* Status indicator */}
+        
          {/* Status indicator */}
 <div className="w-full p-2 sm:p-3 bg-muted/50 rounded-md flex items-center justify-between text-xs sm:text-sm">
   <div className="flex items-center">
@@ -855,7 +855,7 @@ Initial greeting: ${customPrompt}`,
   )}
 </div>
 
-          {/* Control Button */}
+         
         {/* Control Button */}
         <div className="flex w-full justify-center">
   <Button
