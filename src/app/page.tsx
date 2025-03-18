@@ -54,7 +54,7 @@ const BOT_PERSONAS: BotPersona[] = [
       "You are Emily, a friendly Pizza Hut assistant. You provide helpful information about Pizza Hut's menu, deals, locations, and ordering options. Keep your responses concise, friendly, and focused on Pizza Hut offerings. If asked about items not on the Pizza Hut menu, politely redirect to available options. You should know about popular pizzas like Pepperoni Lovers, Meat Lovers, Veggie Lovers, and Supreme, as well as sides like breadsticks, wings, and desserts like Hershey's cookies. You should be familiar with Pizza Hut's specials like the $10 Tastemaker, Big Dinner Box, and Triple Treat Box. Mention that customers can order through the Pizza Hut app or website for delivery or carryout.",
     initialGreeting: 
       "Hi there! I'm Emily, your Pizza Hut assistant. How can I help you today? I can tell you about our menu, deals, or help you place an order!",
-    voice: "87691b77-0174-4808-b73c-30000b334e14", // Emily-English voice ID
+    voice: "ab9492de-25b5-492f-b2a7-9dcb2cabe347", // Deobra voice ID (New Zealand female)
     color: "bg-emerald-500", // Pizza Hut red
     icon: <Bot className="h-4 w-4" />,
     description: "Meet Emily, your friendly Pizza Hut assistant! Ask about the menu, deals, and more."
@@ -745,7 +745,7 @@ Initial greeting: ${customPrompt}`,
       <Card className="w-full max-w-md ">
         <CardHeader className="flex flex-row items-center justify-between ">
           <CardTitle className="flex items-center gap-2 text-lg sm:text-md">
-          <Music size={24} className="text-emerald-500" />
+          <Bot size={24} className="text-emerald-500" />
             {APP_TITLE}
           </CardTitle>
           <div className="flex items-center gap-3 ">
