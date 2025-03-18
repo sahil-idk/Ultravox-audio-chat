@@ -747,7 +747,7 @@ Initial greeting: ${customPrompt}`,
   </CardTitle>
   <div className="flex items-center gap-3">
     <ThemeToggle />
-    <LogoutButton />
+    {/* <LogoutButton /> */}
   </div>
 </CardHeader>
         <CardContent className="flex flex-col items-center space-y-4 sm:space-y-6 ">

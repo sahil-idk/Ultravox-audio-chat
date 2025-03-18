@@ -1,23 +1,26 @@
+// src/app/login/page.tsx
 "use client"
 
-import { SetStateAction, useState } from "react"
+import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Bot } from "lucide-react"
-import { ThemeToggle } from "@/components/toggle"
+// import { ThemeToggle } from "@/components/toggle"
+import { useAuth } from "@/components/auth-provider"
 
 // Hardcoded credentials
 const VALID_CREDENTIALS = {
-  email: "demo@dotvector.ai",
+  username: "demo",
   password: "voiceai2025"
 }
 
 export default function LoginPage() {
   const router = useRouter()
-  const [email, setEmail] = useState("")
+  const { login } = useAuth()
+  const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
   const [isLoading, setIsLoading] = useState(false)
@@ -28,22 +31,19 @@ export default function LoginPage() {
     setError("")
 
     // Simple validation
-    if (!email || !password) {
-      setError("Please enter both email and password")
+    if (!username || !password) {
+      setError("Please enter both username and password")
       setIsLoading(false)
       return
     }
 
     // Check against hardcoded credentials
-    if (email === VALID_CREDENTIALS.email && password === VALID_CREDENTIALS.password) {
-      // Store authentication in localStorage
-      localStorage.setItem("isAuthenticated", "true")
-      localStorage.setItem("authTimestamp", Date.now().toString())
-      
-      // Redirect to main app
+    if (username === VALID_CREDENTIALS.username && password === VALID_CREDENTIALS.password) {
+      // Just call login and redirect
+      login()
       router.push("/")
     } else {
-      setError("Invalid email or password")
+      setError("Invalid username or password")
       setIsLoading(false)
     }
   }
@@ -57,19 +57,19 @@ export default function LoginPage() {
             Dot Vector Voice AI
           </CardTitle>
           <div className="flex items-center gap-3">
-            <ThemeToggle />
+            {/* <ThemeToggle /> */}
           </div>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="username">Username</Label>
               <Input
-                id="email"
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e: { target: { value: SetStateAction<string> } }) => setEmail(e.target.value)}
+                id="username"
+                type="text"
+                placeholder="Enter username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
                 className="w-full"
               />
             </div>
@@ -80,7 +80,7 @@ export default function LoginPage() {
                 type="password"
                 placeholder="••••••••"
                 value={password}
-                onChange={(e: { target: { value: SetStateAction<string> } }) => setPassword(e.target.value)}
+                onChange={(e) => setPassword(e.target.value)}
                 className="w-full"
               />
             </div>
@@ -94,11 +94,11 @@ export default function LoginPage() {
             >
               {isLoading ? "Logging in..." : "Log in"}
             </Button>
-            <div className="text-center text-sm text-muted-foreground mt-4">
-              <p>Demo Credentials:</p>
-              <p>Email: demo@dotvector.ai</p>
-              <p>Password: voiceai2025</p>
-            </div>
+            {/* <div className="text-center text-sm text-muted-foreground mt-4"> */}
+              {/* <p>Demo Credentials:</p>
+              <p>Username: demo</p>
+              <p>Password: voiceai2025</p> */}
+            {/* </div> */}
           </form>
         </CardContent>
       </Card>

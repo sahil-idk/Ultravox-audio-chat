@@ -1,30 +1,22 @@
+// src/components/logout-button.tsx
 "use client"
 
-import { useRouter } from "next/navigation"
-import { LogOut } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { LogOut } from "lucide-react"
+import { useAuth } from "./auth-provider"
 
 export function LogoutButton() {
-  const router = useRouter()
-
-  const handleLogout = () => {
-    // Clear authentication from localStorage
-    localStorage.removeItem("isAuthenticated")
-    localStorage.removeItem("authTimestamp")
-    
-    // Redirect to login page
-    router.push("/login")
-  }
+  const { logout } = useAuth()
 
   return (
-    <Button 
-      variant="outline" 
-      size="sm" 
-      onClick={handleLogout}
-      className="h-9 w-22 rounded-full flex items-center justify-center gap-1"
+    <Button
+      variant="ghost"
+      size="icon"
+      onClick={logout}
+      className="h-8 w-8"
+      aria-label="Logout"
     >
-      <span className="text-xs">Logout</span>
-      <LogOut size={16} className="text-foreground" />
+      <LogOut className="h-4 w-4" />
     </Button>
   )
 }

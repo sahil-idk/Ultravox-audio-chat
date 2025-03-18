@@ -1,52 +1,50 @@
+// src/components/auth-provider.tsx
 "use client"
 
-import { useEffect, useState } from "react"
+import { createContext, useContext, useState, useEffect } from "react"
 import { useRouter, usePathname } from "next/navigation"
 
-interface AuthProviderProps {
-  children: React.ReactNode
+type AuthContextType = {
+  isAuthenticated: boolean
+  login: () => void
+  logout: () => void
 }
 
-export function AuthProvider({ children }: AuthProviderProps) {
+const AuthContext = createContext<AuthContextType>({
+  isAuthenticated: false,
+  login: () => {},
+  logout: () => {},
+})
+
+export const useAuth = () => useContext(AuthContext)
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
   const router = useRouter()
   const pathname = usePathname()
-  const [isLoading, setIsLoading] = useState(true)
 
-  useEffect(() => {
-    // Check if user is authenticated
-    const isAuthenticated = localStorage.getItem("isAuthenticated") === "true"
-    const authTimestamp = Number(localStorage.getItem("authTimestamp") || "0")
-    
-    // Session expires after 24 hours
-    const SESSION_DURATION = 24 * 60 * 60 * 1000 // 24 hours in milliseconds
-    const isSessionValid = Date.now() - authTimestamp < SESSION_DURATION
-    
-    // If not on login page and not authenticated, redirect to login
-    if (pathname !== "/login") {
-      if (!isAuthenticated || !isSessionValid) {
-        router.replace("/login")
-      }
-    } else {
-      // If on login page but already authenticated, redirect to home
-      if (isAuthenticated && isSessionValid) {
-        router.replace("/")
-      }
-    }
-
-    setIsLoading(false)
-  }, [pathname, router])
-
-  // Show loading state while checking authentication
-  if (isLoading) {
-    return (
-      <div className="flex h-screen w-full items-center justify-center bg-background">
-        <div className="text-center">
-          <div className="h-10 w-10 animate-spin rounded-full border-b-2 border-emerald-500 mx-auto"></div>
-          <p className="mt-4 text-foreground">Loading...</p>
-        </div>
-      </div>
-    )
+  // Simple login function
+  const login = () => {
+    setIsAuthenticated(true)
   }
 
-  return <>{children}</>
+  // Simple logout function
+  const logout = () => {
+    setIsAuthenticated(false)
+    router.push("/login")
+  }
+
+  // Move navigation logic to useEffect
+  useEffect(() => {
+    // If not authenticated and not on login page, redirect to login
+    if (!isAuthenticated && pathname !== "/login") {
+      router.push("/login")
+    }
+  }, [isAuthenticated, pathname, router])
+
+  return (
+    <AuthContext.Provider value={{ isAuthenticated, login, logout }}>
+      {children}
+    </AuthContext.Provider>
+  )
 }
