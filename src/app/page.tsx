@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge"
 import { ThemeToggle } from "@/components/toggle"
 import { UltravoxSession, UltravoxSessionStatus } from "ultravox-client"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
+import { LogoutButton } from "@/components/logout-button"
 
 
 // Voice interface from Ultravox API
@@ -33,7 +34,7 @@ interface BotPersona {
   description: string
 }
 
-// Connection states
+
 const ConnectionState = {
   IDLE: "idle",
   CONNECTING: "connecting",
@@ -41,11 +42,6 @@ const ConnectionState = {
   ERROR: "error",
 }
 
-// =============================================
-// BOT CONFIGURATION - EDIT HERE
-// =============================================
-
-// Define your bot personas here - easy to modify
 const BOT_PERSONAS: BotPersona[] = [
   {
     id: "emily-bot",
@@ -743,15 +739,17 @@ Initial greeting: ${customPrompt}`,
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-5 sm:p-10 bg-background text-foreground">
       <Card className="w-full max-w-md ">
-        <CardHeader className="flex flex-row items-center justify-between ">
-          <CardTitle className="flex items-center gap-2 text-lg sm:text-md">
-          <Bot size={24} className="text-emerald-500" />
-            {APP_TITLE}
-          </CardTitle>
-          <div className="flex items-center gap-3 ">
-            <ThemeToggle  />
-          </div>
-        </CardHeader>
+      {/* // Update the header section in your page.tsx */}
+<CardHeader className="flex flex-row items-center justify-between">
+  <CardTitle className="flex items-center gap-2 text-lg sm:text-md">
+    <Bot size={24} className="text-emerald-500" />
+    {APP_TITLE}
+  </CardTitle>
+  <div className="flex items-center gap-3">
+    <ThemeToggle />
+    <LogoutButton />
+  </div>
+</CardHeader>
         <CardContent className="flex flex-col items-center space-y-4 sm:space-y-6 ">
           {/* Voice Tabs */}
           <div className="w-full grid grid-cols-3 gap-2">

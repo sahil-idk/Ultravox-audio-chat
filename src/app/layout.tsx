@@ -1,7 +1,11 @@
 import type { Metadata } from "next";
 import { JetBrains_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
+import { AuthProvider } from "@/components/auth-provider";
 import "./globals.css";
+
+// Ensure next.js doesn't try to statically optimize these routes
+export const dynamic = 'force-dynamic';
 
 const jetBrainsMono = JetBrains_Mono({
   subsets: ["latin"],
@@ -29,7 +33,9 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
+          <AuthProvider>
             {children}
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>
