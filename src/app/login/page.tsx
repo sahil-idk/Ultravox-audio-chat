@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { SetStateAction, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -69,7 +69,7 @@ export default function LoginPage() {
                 type="email"
                 placeholder="you@example.com"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e: { target: { value: SetStateAction<string> } }) => setEmail(e.target.value)}
                 className="w-full"
               />
             </div>
@@ -80,7 +80,7 @@ export default function LoginPage() {
                 type="password"
                 placeholder="••••••••"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e: { target: { value: SetStateAction<string> } }) => setPassword(e.target.value)}
                 className="w-full"
               />
             </div>
