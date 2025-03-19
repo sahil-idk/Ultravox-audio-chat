@@ -815,31 +815,37 @@ Initial greeting: ${customPrompt}`,
           )}
 
           {/* Transcript Display - Only show when connected and has content */}
-          {showTranscript && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={{ duration: 0.3 }}
-              ref={transcriptContainerRef}
-              className="w-full bg-muted/30 p-2 sm:p-3 rounded-md h-32 sm:h-40 overflow-y-auto scrollbar-thin scrollbar-thumb-rounded scrollbar-thumb-gray-300 mt-2"
-            >
-              {transcript ? (
-                <motion.p
-                  initial={{ opacity: 0.5 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ duration: 0.5 }}
-                  className="text-xs sm:text-sm"
-                >
-                  {transcript}
-                </motion.p>
-              ) : conversation.length > 0 ? (
-                <p className="text-xs sm:text-sm">
-                  {conversation.filter((msg) => msg.role === "assistant").pop()?.text || ""}
-                </p>
-              ) : null}
-            </motion.div>
-          )}
+          {/* Transcript Display - Only show when connected and has content */}
+{/* Transcript Display - Only show when connected and has content */}
+{showTranscript && (
+  <motion.div
+    initial={{ opacity: 0, height: 0 }}
+    animate={{ opacity: 1, height: "auto" }}
+    exit={{ opacity: 0, height: 0 }}
+    transition={{ duration: 0.3 }}
+    className="w-full bg-muted/30 p-2 sm:p-3 rounded-md max-h-[4.5em] sm:max-h-[4.5em] overflow-y-auto mt-2"
+    ref={transcriptContainerRef}
+    style={{
+      scrollbarWidth: 'thin',
+      scrollbarColor: 'rgba(156, 163, 175, 0.5) transparent',
+    }}
+  >
+    {transcript ? (
+      <motion.p
+        initial={{ opacity: 0.5 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.5 }}
+        className="text-xs sm:text-sm"
+      >
+        {transcript}
+      </motion.p>
+    ) : conversation.length > 0 ? (
+      <p className="text-xs sm:text-sm">
+        {conversation.filter((msg) => msg.role === "assistant").pop()?.text || ""}
+      </p>
+    ) : null}
+  </motion.div>
+)}
 
         
          {/* Status indicator */}
