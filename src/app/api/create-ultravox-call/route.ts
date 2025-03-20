@@ -17,9 +17,9 @@ export async function GET(request: NextRequest) {
     
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("error:", response.status, errorText);
+      console.error("error:");
       return NextResponse.json(
-        { error: `Failed to fetch voices: ${response.status} ${response.statusText}` },
+        { error: `Failed to fetch voices` },
         { status: response.status }
       );
     }
@@ -33,9 +33,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(data);
     }
   } catch (error) {
-    console.error("Error fetching voices:", error);
+    console.error("Error fetching voices:");
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Unknown error" },
+      { error: "Unknown error" },
       { status: 500 }
     );
   }
@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
     
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("API error:", response.status, errorText);
+      console.error("API error:", response.status);
       return NextResponse.json(
         { error: `Failed to create call: ${response.status} ${response.statusText}` },
         { status: response.status }
@@ -93,9 +93,9 @@ export async function POST(request: NextRequest) {
       joinUrl: data.joinUrl
     });
   } catch (error) {
-    console.error("Error creating call:", error);
+    console.error("Error creating call:");
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Unknown error" },
+      { error: "Unknown error" },
       { status: 500 }
     );
   }

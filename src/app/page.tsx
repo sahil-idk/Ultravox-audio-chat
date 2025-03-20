@@ -85,9 +85,6 @@ const BOT_PERSONAS: BotPersona[] = [
 const APP_TITLE = "Voice AI Demo";
 const APP_FOOTER = "Dot Vector Voice Research © 2025";
 
-// =============================================
-// END OF BOT CONFIGURATION
-// =============================================
 
 
 const getVoiceColor = (voiceName: string): string => {
@@ -238,7 +235,7 @@ const [waveEffect, setWaveEffect] = useState(false)
       // from the API response, but you could do that here if needed
       
     } catch (error) {
-      console.error("Error fetching voices:", error)
+      console.error("Error fetching voices")
     } finally {
       setIsLoadingVoices(false)
     }
@@ -282,7 +279,7 @@ Initial greeting: ${customPrompt}`,
 
       if (!response.ok) {
         const errorData = await response.json()
-        throw new Error(errorData.error || `Failed to create call: ${response.status}`)
+        throw new Error(`Failed to create call: ${response.status}`)
       }
 
       const data = await response.json()
@@ -298,8 +295,8 @@ Initial greeting: ${customPrompt}`,
 
       return data.joinUrl
     } catch (error) {
-      console.error("Error creating call:", error)
-      setErrorMessage(error instanceof Error ? error.message : "Failed to create call")
+      console.error("Error creating call")
+      setErrorMessage("Failed to create call")
       setErrorDialogOpen(true)
       setConnectionState(ConnectionState.ERROR)
       return null
@@ -462,8 +459,8 @@ Initial greeting: ${customPrompt}`,
 
       return true
     } catch (error) {
-      console.error("Error initializing  session:", error)
-      setErrorMessage(error instanceof Error ? error.message : "Failed to initialize session")
+      console.error("Error initializing  session:")
+      setErrorMessage("Failed to initialize session")
       setErrorDialogOpen(true)
       setConnectionState(ConnectionState.ERROR)
 
@@ -529,8 +526,8 @@ Initial greeting: ${customPrompt}`,
 
       analyzeAudio()
     } catch (error) {
-      console.error("Error accessing microphone:", error)
-      setErrorMessage(error instanceof Error ? error.message : "Failed to access microphone")
+      console.error("Error accessing microphone:")
+      setErrorMessage( "Failed to access microphone")
       setErrorDialogOpen(true)
       setConnectionState(ConnectionState.ERROR)
     }
@@ -626,8 +623,8 @@ Initial greeting: ${customPrompt}`,
         connectionTimerRef.current = null
       }
     } catch (error) {
-      console.error("Error ending session:", error)
-      setErrorMessage(error instanceof Error ? error.message : "Failed to end session")
+      console.error("Error ending session:")
+      setErrorMessage("Failed to end session")
       setErrorDialogOpen(true)
     }
   }
