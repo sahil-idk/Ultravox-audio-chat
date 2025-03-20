@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 // Configure environment variables or use them directly in production
-const ULTRAVOX_API_KEY = process.env.ULTRAVOX_API_KEY || 'bphiD9Yf.pDN8lY5llvJTsYYQFITvGoOWyvvJh1GA';
+const ULTRAVOX_API_KEY = process.env.ULTRAVOX_API_KEY || 'PeSlPVif.Tx0xz9NLMDJ7INEluyiIfEDhuVw7KTBN';
 
 
 export async function GET(request: NextRequest) {

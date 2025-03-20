@@ -284,7 +284,7 @@ useEffect(() => {
       
       console.log("Creating audio connection:", botPersona.voice)
   
-      const response = await fetch("/api/create-ultravox-call", { // Keep API endpoint the same as requested
+      const response = await fetch("/api/create-ultravox-call", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -298,9 +298,18 @@ useEffect(() => {
         }),
       })
   
+      // Check for specific error status codes
       if (!response.ok) {
         const errorData = await response.json()
-        throw new Error(`Request failed: ${response.status}`)
+        
+        // Set specific error messages based on status code
+        if (response.status === 403) {
+          throw new Error("INVALID_TOKEN")
+        } else if (response.status === 402) {
+          throw new Error("EXPIRED_TOKEN")
+        } else {
+          throw new Error(`Request failed: ${response.status}`)
+        }
       }
   
       const data = await response.json()
@@ -316,8 +325,23 @@ useEffect(() => {
   
       return data.joinUrl
     } catch (error) {
-      console.error("Connection setup failed")
-      setErrorMessage("Failed to create connection")
+      // Handle specific error types
+      if (error instanceof Error) {
+        if (error.message === "INVALID_TOKEN") {
+          console.error("Invalid session token")
+          setErrorMessage("Invalid Session Token")
+        } else if (error.message === "EXPIRED_TOKEN") {
+          console.error("Expired session token")
+          setErrorMessage("Expired Session Token")
+        } else {
+          console.error("Connection setup failed")
+          setErrorMessage("Failed to create connection")
+        }
+      } else {
+        console.error("Connection setup failed")
+        setErrorMessage("Failed to create connection")
+      }
+      
       setErrorDialogOpen(true)
       setConnectionState(ConnectionState.ERROR)
       return null
@@ -601,7 +625,7 @@ const tryReconnect = async () => {
   // Initialize and start audio session
 const configureAudioSession = async () => {
   try {
-    // Set connection state to CONNECTING
+    // Set connection state to CONNECTINGf
     setConnectionState(ConnectionState.CONNECTING)
     setConnectionProgress(0)
 
@@ -755,9 +779,13 @@ const configureAudioSession = async () => {
 
     return true
   } catch (error) {
-    console.error("Connection initialization failed")
-    setErrorMessage("Failed to initialize audio connection")
-    setErrorDialogOpen(true)
+    // Only set a new error message if one wasn't already set by setupAudioConnection
+    if (!errorMessage || !errorDialogOpen) {
+      console.error("Connection initialization failed")
+      setErrorMessage("Failed to initialize audio connection")
+      setErrorDialogOpen(true)
+    }
+    
     setConnectionState(ConnectionState.ERROR)
 
     // Clear connection progress timer
@@ -765,7 +793,6 @@ const configureAudioSession = async () => {
       clearInterval(connectionTimerRef.current)
       connectionTimerRef.current = null
     }
-
     return false
   }
 }
@@ -836,56 +863,67 @@ const configureAudioSession = async () => {
   };
 
   const startAudioInput = async () => {
-    try {
-      // Resume audio context if suspended
-      if (audioContextRef.current?.state === "suspended") {
-        await audioContextRef.current.resume()
-      }
-  
-      // Request microphone access
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          sampleRate: SAMPLE_RATE,
-          channelCount: 1,
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-        video: false,
-      })
-  
-      micStreamRef.current = stream
-  
-      if (!audioContextRef.current || !analyserRef.current) {
-        throw new Error("Audio context not initialized")
-      }
-  
-      const source = audioContextRef.current.createMediaStreamSource(stream)
-      source.connect(analyserRef.current)
-  
-      // If not connected, initialize
-      if (!audioEngineRef.current || audioEngineRef.current.status === AudioStatus.DISCONNECTED) {
-        const success = await configureAudioSession()
-        if (!success) {
+  try {
+    // Resume audio context if suspended
+    if (audioContextRef.current?.state === "suspended") {
+      await audioContextRef.current.resume()
+    }
+
+    // Request microphone access
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        sampleRate: SAMPLE_RATE,
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+      video: false,
+    })
+
+    micStreamRef.current = stream
+
+    if (!audioContextRef.current || !analyserRef.current) {
+      throw new Error("Audio context not initialized")
+    }
+
+    const source = audioContextRef.current.createMediaStreamSource(stream)
+    source.connect(analyserRef.current)
+
+    // If not connected, initialize
+    if (!audioEngineRef.current || audioEngineRef.current.status === AudioStatus.DISCONNECTED) {
+      const success = await configureAudioSession()
+      if (!success) {
+        // Don't override error message here if one is already set from configureAudioSession
+        if (!errorMessage) {
           throw new Error("Failed to initialize audio service")
-        }
-      } else {
-        // If in IDLE state, ensure microphone is unmuted
-        if (audioEngineRef.current.isMicMuted) {
-          audioEngineRef.current.unmuteMic()
+        } else {
+          // Return false without throwing a new error to preserve the error message
+          return false
         }
       }
-  
-      setIsListening(true)
-  
-      analyzeAudio()
-    } catch (error) {
+    } else {
+      // If in IDLE state, ensure microphone is unmuted
+      if (audioEngineRef.current.isMicMuted) {
+        audioEngineRef.current.unmuteMic()
+      }
+    }
+
+    setIsListening(true)
+
+    analyzeAudio()
+    return true
+  } catch (error) {
+    // Only set a new error message if one wasn't already set by configureAudioSession
+    if (!errorMessage || !errorDialogOpen) {
       console.error("Failed to access microphone")
       setErrorMessage("Failed to access microphone")
       setErrorDialogOpen(true)
-      setConnectionState(ConnectionState.ERROR)
     }
+    setConnectionState(ConnectionState.ERROR)
+    return false
   }
+}
   
 
   const stopAudioInput = () => {
