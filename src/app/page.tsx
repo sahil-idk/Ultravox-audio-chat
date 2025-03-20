@@ -13,6 +13,7 @@ import { ThemeToggle } from "@/components/toggle"
 import { UltravoxSession as AudioSession, UltravoxSessionStatus as AudioStatus } from "ultravox-client"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { LogoutButton } from "@/components/logout-button"
+import { error } from "console"
 
 
 // Voice interface from Ultravox API
@@ -782,7 +783,7 @@ const configureAudioSession = async () => {
     // Only set a new error message if one wasn't already set by setupAudioConnection
     if (!errorMessage || !errorDialogOpen) {
       console.error("Connection initialization failed")
-      setErrorMessage("Failed to initialize audio connection")
+      setErrorMessage(error instanceof Error ? error.message : String(error))
       setErrorDialogOpen(true)
     }
     
@@ -896,7 +897,7 @@ const configureAudioSession = async () => {
       if (!success) {
         // Don't override error message here if one is already set from configureAudioSession
         if (!errorMessage) {
-          throw new Error("Failed to initialize audio service")
+          throw new Error(errorMessage || 'expired token')
         } else {
           // Return false without throwing a new error to preserve the error message
           return false
@@ -916,8 +917,9 @@ const configureAudioSession = async () => {
   } catch (error) {
     // Only set a new error message if one wasn't already set by configureAudioSession
     if (!errorMessage || !errorDialogOpen) {
+      console.log(error)
       console.error("Failed to access microphone")
-      setErrorMessage("Failed to access microphone")
+      setErrorMessage(error instanceof Error ? error.message : String(error))
       setErrorDialogOpen(true)
     }
     setConnectionState(ConnectionState.ERROR)
