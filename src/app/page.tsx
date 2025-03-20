@@ -127,6 +127,8 @@ export default function AudioVisualizer() {
   const [botPersonas, setBotPersonas] = useState<BotPersona[]>(BOT_PERSONAS)
   const [isLoadingVoices, setIsLoadingVoices] = useState(false)
   const [windowWidth, setWindowWidth] = useState(typeof window !== "undefined" ? window.innerWidth : 1024)
+  const [aiSpeaking, setAiSpeaking] = useState(false)
+const [waveEffect, setWaveEffect] = useState(false)
 
   // Connection state management
   const [connectionState, setConnectionState] = useState(ConnectionState.IDLE)
@@ -360,7 +362,7 @@ Initial greeting: ${customPrompt}`,
       session.addEventListener("status", (event) => {
         console.log("Session status changed:", session.status)
         setSessionState(session.status)
-
+      
         // Update UI based on status
         if (
           session.status === UltravoxSessionStatus.LISTENING ||
@@ -369,7 +371,6 @@ Initial greeting: ${customPrompt}`,
         ) {
           // Successfully connected
           if (connectionState !== ConnectionState.CONNECTED) {
-            // We're connected! Stop the progress timer and complete the progress bar
             if (connectionTimerRef.current) {
               clearInterval(connectionTimerRef.current)
               connectionTimerRef.current = null
@@ -377,17 +378,26 @@ Initial greeting: ${customPrompt}`,
             setConnectionProgress(100)
             setConnectionState(ConnectionState.CONNECTED)
           }
-
+      
           setIsConnected(true)
+          
+          // Set AI speaking state based on status
+          setAiSpeaking(session.status === UltravoxSessionStatus.SPEAKING)
+          
+          // Trigger wave effect when AI starts speaking
+          if (session.status === UltravoxSessionStatus.SPEAKING) {
+            setWaveEffect(true)
+            // Start audio visualization for AI speaking
+            analyzeAudio()
+          } else {
+            setWaveEffect(false)
+          }
         } else if (session.status === UltravoxSessionStatus.DISCONNECTED) {
           setIsConnected(false)
           setAudioLevel(0)
           setConnectionState(ConnectionState.IDLE)
-        }
-
-        // When agent is speaking, start audio visualization
-        if (session.status === UltravoxSessionStatus.SPEAKING) {
-          analyzeAudio()
+          setAiSpeaking(false)
+          setWaveEffect(false)
         }
       })
 
@@ -657,32 +667,39 @@ Initial greeting: ${customPrompt}`,
   const currentBot = botPersonas.find((bot) => bot.id === selectedVoice) || botPersonas[0]
 
   // Get box shadow color based on the current bot's color
-  const getBoxShadowColor = (opacity = 0.4) => {
-    const colorClass = currentBot?.color || "bg-emerald-500"
+// Get box shadow color based on the current bot's color
+const getBoxShadowColor = (opacity = 0.4) => {
+  const colorClass = currentBot?.color || "bg-emerald-500"
 
-    switch (colorClass) {
-      case "bg-emerald-500":
-        return `rgba(16, 185, 129, ${opacity})`
-      case "bg-violet-500":
-        return `rgba(139, 92, 246, ${opacity})`
-      case "bg-amber-500":
-        return `rgba(245, 158, 11, ${opacity})`
-      case "bg-red-500":
-        return `rgba(239, 68, 68, ${opacity})`
-      case "bg-blue-500":
-        return `rgba(59, 130, 246, ${opacity})`
-      case "bg-pink-500":
-        return `rgba(236, 72, 153, ${opacity})`
-      case "bg-teal-500":
-        return `rgba(20, 184, 166, ${opacity})`
-      default:
-        return `rgba(16, 185, 129, ${opacity})`
-    }
+  switch (colorClass) {
+    case "bg-emerald-500":
+      return `rgba(16, 185, 129, ${opacity})`
+    case "bg-violet-500":
+      return `rgba(139, 92, 246, ${opacity})`
+    case "bg-amber-500":
+      return `rgba(245, 158, 11, ${opacity})`
+    case "bg-red-500":
+      return `rgba(239, 68, 68, ${opacity})`
+    case "bg-blue-500":
+      return `rgba(59, 130, 246, ${opacity})`
+    case "bg-pink-500":
+      return `rgba(236, 72, 153, ${opacity})`
+    case "bg-teal-500":
+      return `rgba(20, 184, 166, ${opacity})`
+    default:
+      return `rgba(16, 185, 129, ${opacity})`
   }
+}
 
-  const getGlowIntensity = () => {
-    return 0.2 + audioLevel * 0.8
+// Enhanced glow intensity function
+const getGlowIntensity = () => {
+  if (aiSpeaking) {
+    return 0.3 + audioLevel * 0.7; // More intense glow when AI is speaking
   }
+  return 0.2 + audioLevel * 0.6; // Normal glow for user speaking
+}
+
+ 
 
   // Display status text based on session state
   const getStatusText = () => {
@@ -772,33 +789,90 @@ Initial greeting: ${customPrompt}`,
           </div>
 
           {/* Indicator Circle */}
-          <div className="relative h-44 sm:h-72 w-44 sm:w-72 flex items-center justify-center">
-            {/* Outer reference circle */}
-            <div className="absolute w-32 sm:w-48 h-32 sm:h-48 rounded-full border border-muted" />
-
-            {/* Active indicator with motion */}
-            <motion.div
-              className={`rounded-full  bg-emerald-500 flex items-center justify-center`}
-              animate={{
-                width: `${currentSize}px`,
-                height: `${currentSize}px`,
-                opacity: isListening || sessionState === "speaking" ? 0.85 : 0.5,
-                boxShadow:
-                  isListening || sessionState === "speaking"
-                    ? `0 0 ${20 + audioLevel * 15}px ${getBoxShadowColor(getGlowIntensity())}`
-                    : "none",
-              }}
-              transition={{ duration: 0.1 }}
-            >
-              {connectionState === ConnectionState.CONNECTING ? (
-                <Loader2 size={28} className="text-white animate-spin" />
-              ) : isConnected ? (
-                <div className="text-white">
-                  {sessionState === "speaking" ? <Volume2 size={28} /> : <Mic size={28} />}
-                </div>
-              ) : null}
-            </motion.div>
+          {/* Indicator Circle */}
+{/* Indicator Circle */}
+{/* Indicator Circle Container */}
+<div className="relative h-44 sm:h-72 w-44 sm:w-72 flex items-center justify-center overflow-hidden">
+  {/* Structure similar to reference code */}
+  <div className="absolute w-full h-full z-0 top-0">
+    {/* Central reference point similar to the span in reference */}
+    <span 
+      className="aspect-square h-20 sm:h-24 absolute translate-x-[-50%] translate-y-[-50%] top-[50%] left-[50%] rounded-full z-10"
+    />
+    
+    {/* Container for animation effects - similar to the canvas container */}
+    <div className="w-full h-[120%] z-0 top-[50%] translate-y-[-50%] absolute">
+      {/* Ripple effect when AI is speaking */}
+      {waveEffect && (
+        <motion.div
+          className="absolute left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%] rounded-full border-2 border-emerald-500/30"
+          style={{ 
+            width: `${baseSize}px`, 
+            height: `${baseSize}px`,
+            pointerEvents: 'none' 
+          }}
+          animate={{ 
+            scale: [1, 2.5],
+            opacity: [0.5, 0],
+          }}
+          transition={{
+            duration: 2,
+            repeat: Infinity,
+            ease: "linear"
+          }}
+        />
+      )}
+      
+      {/* Secondary pulse effect for continuous motion */}
+      {aiSpeaking && (
+        <motion.div
+          className="absolute left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%] rounded-full bg-emerald-400/20"
+          style={{ 
+            width: `${baseSize * 1.3}px`, 
+            height: `${baseSize * 1.3}px`,
+            pointerEvents: 'none'
+          }}
+          animate={{ 
+            scale: [0.9, 1.1],
+            opacity: [0.2, 0.3],
+          }}
+          transition={{
+            duration: 1.5,
+            repeat: Infinity,
+            repeatType: "reverse",
+            ease: "easeInOut"
+          }}
+        />
+      )}
+      
+      {/* Main circle effect - always present */}
+      <motion.div
+        className="absolute left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%] rounded-full bg-emerald-500 flex items-center justify-center"
+        animate={{
+          width: `${currentSize}px`,
+          height: `${currentSize}px`,
+          opacity: isListening || sessionState === "speaking" ? 0.85 : 0.5,
+          boxShadow:
+            isListening || sessionState === "speaking"
+              ? `0 0 ${20 + audioLevel * 15}px ${getBoxShadowColor(getGlowIntensity())}`
+              : "none",
+        }}
+        transition={{ duration: 0.1 }}
+      >
+        {connectionState === ConnectionState.CONNECTING ? (
+          <Loader2 size={28} className="text-white animate-spin" />
+        ) : isConnected ? (
+          <div className="text-white">
+            {sessionState === "speaking" ? <Volume2 size={28} /> : <Mic size={28} />}
           </div>
+        ) : null}
+      </motion.div>
+    </div>
+  </div>
+  
+  {/* Outer reference circle */}
+  <div className="absolute w-32 sm:w-48 h-32 sm:h-48 rounded-full border border-muted" />
+</div>
 
           {/* Progress bar for connection state */}
           {connectionState === ConnectionState.CONNECTING && (
