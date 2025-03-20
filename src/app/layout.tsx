@@ -13,7 +13,7 @@ const jetBrainsMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: "Dot Vector Voice AI",
-  description: "An interactive voice assistant demonstration featuring Emily, a friendly Pizza Hut assistant who can provide menu information, answer questions about deals, and help with ordering. Built with Next.js, Tailwind CSS, and the Ultravox Voice AI API ",
+  description: "An interactive voice assistant demonstration featuring Emily, a friendly Pizza Hut assistant who can provide menu information, answer questions about deals, and help with ordering. Built with Next.js ",
 };
 
 export default function RootLayout({
