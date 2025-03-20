@@ -125,7 +125,7 @@ export default function AudioVisualizer() {
   const [isLoadingVoices, setIsLoadingVoices] = useState(false)
   const [windowWidth, setWindowWidth] = useState(typeof window !== "undefined" ? window.innerWidth : 1024)
   const [aiSpeaking, setAiSpeaking] = useState(false)
-const [waveEffect, setWaveEffect] = useState(false)
+  const [waveEffect, setWaveEffect] = useState(false)
 
   // Connection state management
   const [connectionState, setConnectionState] = useState(ConnectionState.IDLE)
@@ -138,6 +138,11 @@ const [waveEffect, setWaveEffect] = useState(false)
   const [isConnected, setIsConnected] = useState(false)
   const [transcript, setTranscript] = useState("")
   const [conversation, setConversation] = useState<Array<{ role: string; text: string }>>([])
+  const [isPageVisible, setIsPageVisible] = useState(true)
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true)
+  const [reconnectAttempts, setReconnectAttempts] = useState(0)
+  const MAX_RECONNECT_ATTEMPTS = 3
+  const INACTIVITY_TIMEOUT = 5 * 60 * 1000 
   
   // Flag for showing transcript container
   const [showTranscript, setShowTranscript] = useState(false)
@@ -152,6 +157,14 @@ const [waveEffect, setWaveEffect] = useState(false)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const transcriptContainerRef = useRef<HTMLDivElement | null>(null)
   const connectionTimerRef = useRef<NodeJS.Timeout | null>(null)
+  // Use refs for inactivity tracking instead of state
+  const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const lastActivityTimeRef = useRef<number>(Date.now())
+  // Add visibility timer ref for tab switching
+  const visibilityTimerRef = useRef<NodeJS.Timeout | null>(null)
+  // Add refs for handling dialog flickering
+  const isTabSwitchingRef = useRef(false);
+  const dialogDebounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Get custom voice prompts
   
@@ -200,6 +213,15 @@ const [waveEffect, setWaveEffect] = useState(false)
         }
         if (connectionTimerRef.current) {
           clearInterval(connectionTimerRef.current)
+        }
+        if (inactivityTimerRef.current) {
+          clearTimeout(inactivityTimerRef.current)
+        }
+        if (visibilityTimerRef.current) {
+          clearTimeout(visibilityTimerRef.current)
+        }
+        if (dialogDebounceTimeoutRef.current) {
+          clearTimeout(dialogDebounceTimeoutRef.current)
         }
       }
     }
@@ -304,6 +326,275 @@ Initial greeting: ${customPrompt}`,
       setIsLoading(false)
     }
   }
+  
+  // Improved visibility change handler with delayed session end
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+
+    const handleVisibilityChange = () => {
+      const isVisible = document.visibilityState === 'visible';
+      setIsPageVisible(isVisible);
+      
+      // Clear any existing visibility timer
+      if (visibilityTimerRef.current) {
+        clearTimeout(visibilityTimerRef.current);
+        visibilityTimerRef.current = null;
+      }
+      
+      // Clear any existing dialog debounce timeout
+      if (dialogDebounceTimeoutRef.current) {
+        clearTimeout(dialogDebounceTimeoutRef.current);
+        dialogDebounceTimeoutRef.current = null;
+      }
+      
+      if (!isVisible && isConnected) {
+        // Mark that we're handling a tab switch
+        isTabSwitchingRef.current = true;
+        
+        // Add a short delay before ending session
+        visibilityTimerRef.current = setTimeout(() => {
+          // Only proceed if the page is still not visible
+          if (document.visibilityState !== 'visible' && isConnected) {
+            // Set the error message first
+            setErrorMessage("Session ended due to tab change/browser minimization.");
+            
+            // End the session
+            endSession();
+            
+            // Show dialog after a small delay to avoid flickering
+            dialogDebounceTimeoutRef.current = setTimeout(() => {
+              if (!isTabSwitchingRef.current) return; // Safety check
+              setErrorDialogOpen(true);
+              isTabSwitchingRef.current = false;
+            }, 300);
+          } else {
+            // If user came back quickly, reset the flag
+            isTabSwitchingRef.current = false;
+          }
+        }, 1000); // 1 second delay
+      } else if (isVisible) {
+        // If user quickly returns to the tab
+        isTabSwitchingRef.current = false;
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (visibilityTimerRef.current) {
+        clearTimeout(visibilityTimerRef.current);
+      }
+      if (dialogDebounceTimeoutRef.current) {
+        clearTimeout(dialogDebounceTimeoutRef.current);
+      }
+    };
+  }, [isConnected]);
+
+  // Add this useEffect to handle beforeunload event - fixed deprecated returnValue warning
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isConnected) {
+        // Clean up the session
+        endSession()
+        
+        // Show a confirmation dialog to the user
+        e.preventDefault()
+        
+        // Use a message string
+        const message = 'You have an active voice session. Are you sure you want to leave?'
+        
+        // For older browsers, use type assertion to avoid TypeScript warnings
+        // This is still necessary for browser compatibility
+        e.returnValue = message as any
+        
+        return message
+      }
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+    }
+  }, [isConnected])
+
+  // Add this useEffect to handle network connectivity changes
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const handleOnline = () => {
+      setIsOnline(true)
+      
+      // If we were previously connected and went offline, try to reconnect
+      if (isConnected && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+        attemptReconnect()
+      }
+    }
+
+    const handleOffline = () => {
+      setIsOnline(false)
+      
+      if (isConnected) {
+        setErrorMessage("Network connection lost. Session disconnected.")
+        setErrorDialogOpen(true)
+        
+        // Set state to disconnected but don't fully end session yet
+        setConnectionState(ConnectionState.ERROR)
+      }
+    }
+
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [isConnected, reconnectAttempts])
+
+  // FIXED: Handle user inactivity with proper refs instead of state
+  useEffect(() => {
+    if (!isConnected) return
+    
+    // Function to handle user activity
+    const handleUserActivity = () => {
+      // Update the ref directly instead of using state
+      lastActivityTimeRef.current = Date.now()
+      
+      // Reset the timer when there's user activity
+      resetInactivityTimer()
+    }
+    
+    // Function to reset the inactivity timer
+    const resetInactivityTimer = () => {
+      // Clear any existing timer
+      if (inactivityTimerRef.current) {
+        clearTimeout(inactivityTimerRef.current)
+        inactivityTimerRef.current = null
+      }
+      
+      // Set a new timer using the ref
+      inactivityTimerRef.current = setTimeout(() => {
+        const currentTime = Date.now()
+        const inactiveTime = currentTime - lastActivityTimeRef.current
+        
+        if (inactiveTime >= INACTIVITY_TIMEOUT && isConnected) {
+          setErrorMessage("Session disconnected due to inactivity.")
+          setErrorDialogOpen(true)
+          endSession()
+        }
+      }, INACTIVITY_TIMEOUT)
+    }
+    
+    // Add event listeners for user activity
+    window.addEventListener('mousemove', handleUserActivity)
+    window.addEventListener('keydown', handleUserActivity)
+    window.addEventListener('click', handleUserActivity)
+    window.addEventListener('touchstart', handleUserActivity)
+    
+    // Initial setup of the inactivity timer
+    resetInactivityTimer()
+    
+    // Clean up
+    return () => {
+      window.removeEventListener('mousemove', handleUserActivity)
+      window.removeEventListener('keydown', handleUserActivity)
+      window.removeEventListener('click', handleUserActivity)
+      window.removeEventListener('touchstart', handleUserActivity)
+      
+      if (inactivityTimerRef.current) {
+        clearTimeout(inactivityTimerRef.current)
+        inactivityTimerRef.current = null
+      }
+    }
+  }, [isConnected, INACTIVITY_TIMEOUT]) // Only depend on isConnected and constants
+  
+  // Add this function to attempt reconnection
+  const attemptReconnect = async () => {
+    try {
+      setReconnectAttempts(prev => prev + 1)
+      setConnectionState(ConnectionState.CONNECTING)
+      setConnectionProgress(30)
+      
+      // Clear any previous errors
+      setErrorMessage(null)
+      setErrorDialogOpen(false)
+      
+      // Attempt to rejoin the existing call if we have a join URL
+      if (joinUrl && uvSessionRef.current) {
+        uvSessionRef.current.joinCall(joinUrl)
+        return true
+      } else {
+        // Otherwise create a new session
+        return await initializeUltravoxSession()
+      }
+    } catch (error) {
+      console.error("Error reconnecting:", error)
+      setErrorMessage("Failed to reconnect, please try again.")
+      setErrorDialogOpen(true)
+      setConnectionState(ConnectionState.ERROR)
+      return false
+    }
+  }
+  
+  // Update the endSession function to use the refs for the timer
+  const endSession = async () => {
+    try {
+      // Stop microphone if active
+      if (isListening) {
+        stopMicrophone()
+      }
+  
+      // Leave Ultravox call
+      if (uvSessionRef.current) {
+        await uvSessionRef.current.leaveCall()
+        uvSessionRef.current = null
+      }
+  
+      // Reset state
+      setSessionId(null)
+      setJoinUrl(null)
+      setIsConnected(false)
+      setSessionState("idle")
+      setTranscript("")
+      setConversation([])
+      setAudioLevel(0)
+      setConnectionState(ConnectionState.IDLE)
+      setConnectionProgress(0)
+      setShowTranscript(false)
+      setReconnectAttempts(0) // Reset reconnection attempts
+  
+      // Clear all timers
+      if (connectionTimerRef.current) {
+        clearInterval(connectionTimerRef.current)
+        connectionTimerRef.current = null
+      }
+      
+      if (inactivityTimerRef.current) {
+        clearTimeout(inactivityTimerRef.current)
+        inactivityTimerRef.current = null
+      }
+      
+      if (visibilityTimerRef.current) {
+        clearTimeout(visibilityTimerRef.current)
+        visibilityTimerRef.current = null
+      }
+      
+      if (dialogDebounceTimeoutRef.current) {
+        clearTimeout(dialogDebounceTimeoutRef.current)
+        dialogDebounceTimeoutRef.current = null
+      }
+    } catch (error) {
+      console.error("Error ending session:", error)
+      setErrorMessage("Failed to end session")
+      
+      // Ensure we don't show multiple dialogs
+      if (!isTabSwitchingRef.current) {
+        setErrorDialogOpen(true)
+      }
+    }
+  }
 
   // Initialize and start Ultravox session
   const initializeUltravoxSession = async () => {
@@ -374,6 +665,9 @@ Initial greeting: ${customPrompt}`,
             }
             setConnectionProgress(100)
             setConnectionState(ConnectionState.CONNECTED)
+            
+            // Reset reconnection attempts on successful connection
+            setReconnectAttempts(0)
           }
       
           setIsConnected(true)
@@ -480,6 +774,64 @@ Initial greeting: ${customPrompt}`,
       await startMicrophone()
     }
   }
+
+  // Enhanced Error Dialog component with fix for flickering
+  const ErrorDialog = () => {
+    // Use local state to prevent dialog flickering
+    const [localDialogOpen, setLocalDialogOpen] = useState(false);
+    const [localErrorMessage, setLocalErrorMessage] = useState<string | null>(null);
+    
+    // Only sync state from parent when needed
+    useEffect(() => {
+      if (errorDialogOpen && !localDialogOpen) {
+        setLocalDialogOpen(true);
+        setLocalErrorMessage(errorMessage);
+      }
+    }, [errorDialogOpen, errorMessage]);
+    
+    const handleClose = () => {
+      setLocalDialogOpen(false);
+      setErrorDialogOpen(false);
+    };
+    
+    const handleRetry = async () => {
+      setLocalDialogOpen(false);
+      setErrorDialogOpen(false);
+      await attemptReconnect();
+    };
+    
+    return (
+      <Dialog 
+        open={localDialogOpen} 
+        onOpenChange={(open) => {
+          if (!open) {
+            handleClose();
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {localErrorMessage?.includes("Network") || localErrorMessage?.includes("Failed to reconnect") 
+                ? "Connection Error" 
+                : localErrorMessage?.includes("Session paused") || localErrorMessage?.includes("Session ended")
+                  ? "Session Ended" 
+                  : "Error"}
+            </DialogTitle>
+            <DialogDescription>{localErrorMessage}</DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2">
+            {(localErrorMessage?.includes("Network") || localErrorMessage?.includes("reconnect")) && isOnline && (
+              <Button onClick={handleRetry}>
+                Retry
+              </Button>
+            )}
+            <Button onClick={handleClose}>Close</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  };
 
   const startMicrophone = async () => {
     try {
@@ -592,43 +944,6 @@ Initial greeting: ${customPrompt}`,
     updateLevel()
   }
 
-  const endSession = async () => {
-    try {
-      // Stop microphone if active
-      if (isListening) {
-        stopMicrophone()
-      }
-
-      // Leave Ultravox call
-      if (uvSessionRef.current) {
-        await uvSessionRef.current.leaveCall()
-        uvSessionRef.current = null
-      }
-
-      // Reset state
-      setSessionId(null)
-      setJoinUrl(null)
-      setIsConnected(false)
-      setSessionState("idle")
-      setTranscript("")
-      setConversation([])
-      setAudioLevel(0)
-      setConnectionState(ConnectionState.IDLE)
-      setConnectionProgress(0)
-      setShowTranscript(false)
-
-      // Clear any connection timers
-      if (connectionTimerRef.current) {
-        clearInterval(connectionTimerRef.current)
-        connectionTimerRef.current = null
-      }
-    } catch (error) {
-      console.error("Error ending session:")
-      setErrorMessage("Failed to end session")
-      setErrorDialogOpen(true)
-    }
-  }
-
   const handleVoiceChange = async (voiceId: string) => {
     console.log("Voice changed to:", voiceId)
     setSelectedVoice(voiceId)
@@ -664,39 +979,36 @@ Initial greeting: ${customPrompt}`,
   const currentBot = botPersonas.find((bot) => bot.id === selectedVoice) || botPersonas[0]
 
   // Get box shadow color based on the current bot's color
-// Get box shadow color based on the current bot's color
-const getBoxShadowColor = (opacity = 0.4) => {
-  const colorClass = currentBot?.color || "bg-emerald-500"
+  const getBoxShadowColor = (opacity = 0.4) => {
+    const colorClass = currentBot?.color || "bg-emerald-500"
 
-  switch (colorClass) {
-    case "bg-emerald-500":
-      return `rgba(16, 185, 129, ${opacity})`
-    case "bg-violet-500":
-      return `rgba(139, 92, 246, ${opacity})`
-    case "bg-amber-500":
-      return `rgba(245, 158, 11, ${opacity})`
-    case "bg-red-500":
-      return `rgba(239, 68, 68, ${opacity})`
-    case "bg-blue-500":
-      return `rgba(59, 130, 246, ${opacity})`
-    case "bg-pink-500":
-      return `rgba(236, 72, 153, ${opacity})`
-    case "bg-teal-500":
-      return `rgba(20, 184, 166, ${opacity})`
-    default:
-      return `rgba(16, 185, 129, ${opacity})`
+    switch (colorClass) {
+      case "bg-emerald-500":
+        return `rgba(16, 185, 129, ${opacity})`
+      case "bg-violet-500":
+        return `rgba(139, 92, 246, ${opacity})`
+      case "bg-amber-500":
+        return `rgba(245, 158, 11, ${opacity})`
+      case "bg-red-500":
+        return `rgba(239, 68, 68, ${opacity})`
+      case "bg-blue-500":
+        return `rgba(59, 130, 246, ${opacity})`
+      case "bg-pink-500":
+        return `rgba(236, 72, 153, ${opacity})`
+      case "bg-teal-500":
+        return `rgba(20, 184, 166, ${opacity})`
+      default:
+        return `rgba(16, 185, 129, ${opacity})`
+    }
   }
-}
 
-// Enhanced glow intensity function
-const getGlowIntensity = () => {
-  if (aiSpeaking) {
-    return 0.3 + audioLevel * 0.7; // More intense glow when AI is speaking
+  // Enhanced glow intensity function
+  const getGlowIntensity = () => {
+    if (aiSpeaking) {
+      return 0.3 + audioLevel * 0.7; // More intense glow when AI is speaking
+    }
+    return 0.2 + audioLevel * 0.6; // Normal glow for user speaking
   }
-  return 0.2 + audioLevel * 0.6; // Normal glow for user speaking
-}
-
- 
 
   // Display status text based on session state
   const getStatusText = () => {
@@ -786,90 +1098,85 @@ const getGlowIntensity = () => {
           </div>
 
           {/* Indicator Circle */}
-          {/* Indicator Circle */}
-{/* Indicator Circle */}
-{/* Indicator Circle Container */}
-<div className="relative h-44 sm:h-72 w-44 sm:w-72 flex items-center justify-center overflow-hidden">
-  {/* Structure similar to reference code */}
-  <div className="absolute w-full h-full z-0 top-0">
-    {/* Central reference point similar to the span in reference */}
-    <span 
-      className="aspect-square h-20 sm:h-24 absolute translate-x-[-50%] translate-y-[-50%] top-[50%] left-[50%] rounded-full z-10"
-    />
-    
-    {/* Container for animation effects - similar to the canvas container */}
-    <div className="w-full h-[120%] z-0 top-[50%] translate-y-[-50%] absolute">
-      {/* Ripple effect when AI is speaking */}
-      {waveEffect && (
-        <motion.div
-          className="absolute left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%] rounded-full border-2 border-emerald-500/30"
-          style={{ 
-            width: `${baseSize}px`, 
-            height: `${baseSize}px`,
-            pointerEvents: 'none' 
-          }}
-          animate={{ 
-            scale: [1, 2.5],
-            opacity: [0.5, 0],
-          }}
-          transition={{
-            duration: 2,
-            repeat: Infinity,
-            ease: "linear"
-          }}
-        />
-      )}
-      
-      {/* Secondary pulse effect for continuous motion */}
-      {aiSpeaking && (
-        <motion.div
-          className="absolute left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%] rounded-full bg-emerald-400/60"
-          style={{ 
-            width: `${baseSize * 1.3}px`, 
-            height: `${baseSize * 1.3}px`,
-            pointerEvents: 'none'
-          }}
-          animate={{ 
-            scale: [0.9, 1.1],
-            opacity: [0.2, 0.3],
-          }}
-          transition={{
-            duration: 1.5,
-            repeat: Infinity,
-            repeatType: "reverse",
-            ease: "easeInOut"
-          }}
-        />
-      )}
-      
-      {/* Main circle effect - always present */}
-      <motion.div
-        className="absolute left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%] rounded-full bg-emerald-500 flex items-center justify-center"
-        animate={{
-          width: `${currentSize}px`,
-          height: `${currentSize}px`,
-          opacity: isListening || sessionState === "speaking" ? 0.85 : 0.5,
-          boxShadow:
-            isListening || sessionState === "speaking"
-              ? `0 0 ${20 + audioLevel * 15}px ${getBoxShadowColor(getGlowIntensity())}`
-              : "none",
-        }}
-        transition={{ duration: 0.1 }}
-      >
-        {connectionState === ConnectionState.CONNECTING ? (
-          <Loader2 size={28} className="text-white animate-spin" />
-        ) : isConnected ? (
-          <div className="text-white">
-            {sessionState === "speaking" ? <Volume2 size={28} /> : <Mic size={28} />}
+          {/* Indicator Circle Container */}
+          <div className="relative h-44 sm:h-72 w-44 sm:w-72 flex items-center justify-center overflow-hidden">
+            {/* Structure similar to reference code */}
+            <div className="absolute w-full h-full z-0 top-0">
+              {/* Central reference point similar to the span in reference */}
+              <span 
+                className="aspect-square h-20 sm:h-24 absolute translate-x-[-50%] translate-y-[-50%] top-[50%] left-[50%] rounded-full z-10"
+              />
+              
+              {/* Container for animation effects - similar to the canvas container */}
+              <div className="w-full h-[120%] z-0 top-[50%] translate-y-[-50%] absolute">
+                {/* Ripple effect when AI is speaking */}
+                {waveEffect && (
+                  <motion.div
+                    className="absolute left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%] rounded-full border-2 border-emerald-500/30"
+                    style={{ 
+                      width: `${baseSize}px`, 
+                      height: `${baseSize}px`,
+                      pointerEvents: 'none' 
+                    }}
+                    animate={{ 
+                      scale: [1, 2.5],
+                      opacity: [0.5, 0],
+                    }}
+                    transition={{
+                      duration: 2,
+                      repeat: Infinity,
+                      ease: "linear"
+                    }}
+                  />
+                )}
+                
+                {/* Secondary pulse effect for continuous motion */}
+                {aiSpeaking && (
+                  <motion.div
+                    className="absolute left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%] rounded-full bg-emerald-400/60"
+                    style={{ 
+                      width: `${baseSize * 1.3}px`, 
+                      height: `${baseSize * 1.3}px`,
+                      pointerEvents: 'none'
+                    }}
+                    animate={{ 
+                      scale: [0.9, 1.1],
+                      opacity: [0.2, 0.3],
+                    }}
+                    transition={{
+                      duration: 1.5,
+                      repeat: Infinity,
+                      repeatType: "reverse",
+                      ease: "easeInOut"
+                    }}
+                  />
+                )}
+                
+                {/* Main circle effect - always present */}
+                <motion.div
+                  className="absolute left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%] rounded-full bg-emerald-500 flex items-center justify-center"
+                  animate={{
+                    width: `${currentSize}px`,
+                    height: `${currentSize}px`,
+                    opacity: isListening || sessionState === "speaking" ? 0.85 : 0.5,
+                    boxShadow:
+                      isListening || sessionState === "speaking"
+                        ? `0 0 ${20 + audioLevel * 15}px ${getBoxShadowColor(getGlowIntensity())}`
+                        : "none",
+                  }}
+                  transition={{ duration: 0.1 }}
+                >
+                  {connectionState === ConnectionState.CONNECTING ? (
+                    <Loader2 size={28} className="text-white animate-spin" />
+                  ) : isConnected ? (
+                    <div className="text-white">
+                      {sessionState === "speaking" ? <Volume2 size={28} /> : <Mic size={28} />}
+                    </div>
+                  ) : null}
+                </motion.div>
+              </div>
+            </div>
           </div>
-        ) : null}
-      </motion.div>
-    </div>
-  </div>
-  
-  {/* Outer reference circle */}
-  {/* <div className="absolute w-32 sm:w-48 h-32 sm:h-48 rounded-full border border-muted" /> */}
-</div>
 
           {/* Progress bar for connection state */}
           {connectionState === ConnectionState.CONNECTING && (
@@ -886,103 +1193,88 @@ const getGlowIntensity = () => {
           )}
 
           {/* Transcript Display - Only show when connected and has content */}
-          {/* Transcript Display - Only show when connected and has content */}
-{/* Transcript Display - Only show when connected and has content */}
-{showTranscript && (
-  <motion.div
-    initial={{ opacity: 0, height: 0 }}
-    animate={{ opacity: 1, height: "auto" }}
-    exit={{ opacity: 0, height: 0 }}
-    transition={{ duration: 0.3 }}
-    className="w-full bg-muted/30 p-2 sm:p-3 rounded-md max-h-[4.5em] sm:max-h-[4.5em] overflow-y-auto mt-2"
-    ref={transcriptContainerRef}
-    style={{
-      scrollbarWidth: 'thin',
-      scrollbarColor: 'rgba(156, 163, 175, 0.5) transparent',
-    }}
-  >
-    {transcript ? (
-      <motion.p
-        initial={{ opacity: 0.5 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.5 }}
-        className="text-xs sm:text-sm"
-      >
-        {transcript}
-      </motion.p>
-    ) : conversation.length > 0 ? (
-      <p className="text-xs sm:text-sm">
-        {conversation.filter((msg) => msg.role === "assistant").pop()?.text || ""}
-      </p>
-    ) : null}
-  </motion.div>
-)}
+          {showTranscript && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.3 }}
+              className="w-full bg-muted/30 p-2 sm:p-3 rounded-md max-h-[4.5em] sm:max-h-[4.5em] overflow-y-auto mt-2"
+              ref={transcriptContainerRef}
+              style={{
+                scrollbarWidth: 'thin',
+                scrollbarColor: 'rgba(156, 163, 175, 0.5) transparent',
+              }}
+            >
+              {transcript ? (
+                <motion.p
+                  initial={{ opacity: 0.5 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.5 }}
+                  className="text-xs sm:text-sm"
+                >
+                  {transcript}
+                </motion.p>
+              ) : conversation.length > 0 ? (
+                <p className="text-xs sm:text-sm">
+                  {conversation.filter((msg) => msg.role === "assistant").pop()?.text || ""}
+                </p>
+              ) : null}
+            </motion.div>
+          )}
 
-        
-         {/* Status indicator */}
-<div className="w-full p-2 sm:p-3 bg-muted/50 rounded-md flex items-center justify-between text-xs sm:text-sm">
-  <div className="flex items-center">
-    {getStatusText()}
-  </div>
+                
+          {/* Status indicator */}
+          <div className="w-full p-2 sm:p-3 bg-muted/50 rounded-md flex items-center justify-between text-xs sm:text-sm">
+            <div className="flex items-center">
+              {getStatusText()}
+            </div>
 
-  {isConnected && (
-    <Badge variant="outline" className="font-mono text-xs">
-      {Math.round(audioLevel * 100)}%
-    </Badge>
-  )}
-</div>
+            {isConnected && (
+              <Badge variant="outline" className="font-mono text-xs">
+                {Math.round(audioLevel * 100)}%
+              </Badge>
+            )}
+          </div>
 
-         
-        {/* Control Button */}
-        <div className="flex w-full justify-center">
-  <Button
-    onClick={isConnected ? endSession : handleMicToggle}
-    variant={isConnected ? "destructive" : "default"}
-    className={`flex-1 py-5 ${
-      isConnected 
-        ? "bg-red-500 hover:bg-red-700" 
-        : connectionState === ConnectionState.CONNECTING
-          ? "bg-emerald-500 hover:bg-emerald-600"
-          : "bg-emerald-500 hover:bg-emerald-600"
-    }`}
-    disabled={connectionState === ConnectionState.CONNECTING}
-  >
-    {connectionState === ConnectionState.CONNECTING ? (
-      <>
-        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-        Connecting...
-      </>
-    ) : isConnected ? (
-      <>
-        <X className="mr-2" size={20} />
-        Stop Session
-      </>
-    ) : (
-      <>
-        <Play className="mr-2" size={20} />
-        Start Session
-      </>
-    )}
-  </Button>
-</div>
-
-          {/* Status Text */}
-          
+                
+          {/* Control Button */}
+          <div className="flex w-full justify-center">
+            <Button
+              onClick={isConnected ? endSession : handleMicToggle}
+              variant={isConnected ? "destructive" : "default"}
+              className={`flex-1 py-5 ${
+                isConnected 
+                  ? "bg-red-500 hover:bg-red-700" 
+                  : connectionState === ConnectionState.CONNECTING
+                    ? "bg-emerald-500 hover:bg-emerald-600"
+                    : "bg-emerald-500 hover:bg-emerald-600"
+              }`}
+              disabled={connectionState === ConnectionState.CONNECTING}
+            >
+              {connectionState === ConnectionState.CONNECTING ? (
+                <>
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                  Connecting...
+                </>
+              ) : isConnected ? (
+                <>
+                  <X className="mr-2" size={20} />
+                  Stop Session
+                </>
+              ) : (
+                <>
+                  <Play className="mr-2" size={20} />
+                  Start Session
+                </>
+              )}
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
       {/* Error Dialog */}
-      <Dialog open={errorDialogOpen} onOpenChange={setErrorDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Error</DialogTitle>
-            <DialogDescription>{errorMessage}</DialogDescription>
-          </DialogHeader>
-          <div className="flex justify-end">
-            <Button onClick={() => setErrorDialogOpen(false)}>Close</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <ErrorDialog />
 
       {/* Audio element for click sound */}
       <audio ref={audioRef} className="hidden" />
