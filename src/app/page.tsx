@@ -826,7 +826,7 @@ const getGlowIntensity = () => {
       {/* Secondary pulse effect for continuous motion */}
       {aiSpeaking && (
         <motion.div
-          className="absolute left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%] rounded-full bg-emerald-400/20"
+          className="absolute left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%] rounded-full bg-emerald-400/60"
           style={{ 
             width: `${baseSize * 1.3}px`, 
             height: `${baseSize * 1.3}px`,
