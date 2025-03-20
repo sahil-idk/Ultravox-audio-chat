@@ -282,7 +282,7 @@ Initial greeting: ${customPrompt}`,
 
       if (!response.ok) {
         const errorData = await response.json()
-        throw new Error(errorData.error || `Failed to create Ultravox call: ${response.status}`)
+        throw new Error(errorData.error || `Failed to create call: ${response.status}`)
       }
 
       const data = await response.json()
@@ -298,8 +298,8 @@ Initial greeting: ${customPrompt}`,
 
       return data.joinUrl
     } catch (error) {
-      console.error("Error creating Ultravox call:", error)
-      setErrorMessage(error instanceof Error ? error.message : "Failed to create Ultravox call")
+      console.error("Error creating call:", error)
+      setErrorMessage(error instanceof Error ? error.message : "Failed to create call")
       setErrorDialogOpen(true)
       setConnectionState(ConnectionState.ERROR)
       return null
@@ -462,8 +462,8 @@ Initial greeting: ${customPrompt}`,
 
       return true
     } catch (error) {
-      console.error("Error initializing Ultravox session:", error)
-      setErrorMessage(error instanceof Error ? error.message : "Failed to initialize Ultravox session")
+      console.error("Error initializing  session:", error)
+      setErrorMessage(error instanceof Error ? error.message : "Failed to initialize session")
       setErrorDialogOpen(true)
       setConnectionState(ConnectionState.ERROR)
 
@@ -516,7 +516,7 @@ Initial greeting: ${customPrompt}`,
       if (!uvSessionRef.current || uvSessionRef.current.status === UltravoxSessionStatus.DISCONNECTED) {
         const success = await initializeUltravoxSession()
         if (!success) {
-          throw new Error("Failed to initialize Ultravox session")
+          throw new Error("Failed to initialize session")
         }
       } else {
         // If in IDLE state, ensure microphone is unmuted
@@ -871,7 +871,7 @@ const getGlowIntensity = () => {
   </div>
   
   {/* Outer reference circle */}
-  <div className="absolute w-32 sm:w-48 h-32 sm:h-48 rounded-full border border-muted" />
+  {/* <div className="absolute w-32 sm:w-48 h-32 sm:h-48 rounded-full border border-muted" /> */}
 </div>
 
           {/* Progress bar for connection state */}
