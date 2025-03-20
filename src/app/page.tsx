@@ -10,13 +10,13 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { ThemeToggle } from "@/components/toggle"
-import { UltravoxSession, UltravoxSessionStatus } from "ultravox-client"
+import { UltravoxSession as AudioSession, UltravoxSessionStatus as AudioStatus } from "ultravox-client"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { LogoutButton } from "@/components/logout-button"
 
 
 // Voice interface from Ultravox API
-interface UltravoxVoice {
+interface VoiceOption {
   voiceId: string
   name: string
   description?: string
@@ -120,7 +120,7 @@ export default function AudioVisualizer() {
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [errorDialogOpen, setErrorDialogOpen] = useState(false)
-  const [availableVoices, setAvailableVoices] = useState<UltravoxVoice[]>([])
+  const [availableVoices, setAvailableVoices] = useState<VoiceOption[]>([])
   const [botPersonas, setBotPersonas] = useState<BotPersona[]>(BOT_PERSONAS)
   const [isLoadingVoices, setIsLoadingVoices] = useState(false)
   const [windowWidth, setWindowWidth] = useState(typeof window !== "undefined" ? window.innerWidth : 1024)
@@ -153,7 +153,8 @@ export default function AudioVisualizer() {
   const analyserRef = useRef<AnalyserNode | null>(null)
   const frameRef = useRef<number | null>(null)
   const prevLevelRef = useRef<number>(0)
-  const uvSessionRef = useRef<UltravoxSession | null>(null)
+  const audioEngineRef = useRef<AudioSession | null>(null)
+
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const transcriptContainerRef = useRef<HTMLDivElement | null>(null)
   const connectionTimerRef = useRef<NodeJS.Timeout | null>(null)
@@ -182,50 +183,51 @@ export default function AudioVisualizer() {
   }, [])
 
   // Initialize audio context and analyzer
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const AudioContext = window.AudioContext || (window as any).webkitAudioContext
+  // Update initialization in useEffect
+useEffect(() => {
+  if (typeof window !== "undefined") {
+    const AudioContext = window.AudioContext || (window as any).webkitAudioContext
 
-      audioContextRef.current = new AudioContext({
-        sampleRate: SAMPLE_RATE,
-      })
-      analyserRef.current = audioContextRef.current.createAnalyser()
-      analyserRef.current.fftSize = 256
-      analyserRef.current.smoothingTimeConstant = 0.7
+    audioContextRef.current = new AudioContext({
+      sampleRate: SAMPLE_RATE,
+    })
+    analyserRef.current = audioContextRef.current.createAnalyser()
+    analyserRef.current.fftSize = 256
+    analyserRef.current.smoothingTimeConstant = 0.7
 
-      audioRef.current = new Audio("/mixkit-select-click-1109.wav")
+    audioRef.current = new Audio("/mixkit-select-click-1109.wav")
 
-      // If you want to fetch voices from API, uncomment this
-      // fetchVoices()
+    // If you want to fetch voices from API, uncomment this
+    // fetchVoices()
 
-      return () => {
-        if (frameRef.current) {
-          cancelAnimationFrame(frameRef.current)
-        }
-        if (micStreamRef.current) {
-          micStreamRef.current.getTracks().forEach((track) => track.stop())
-        }
-        if (audioContextRef.current && audioContextRef.current.state !== "closed") {
-          audioContextRef.current.close()
-        }
-        if (uvSessionRef.current) {
-          uvSessionRef.current.leaveCall()
-        }
-        if (connectionTimerRef.current) {
-          clearInterval(connectionTimerRef.current)
-        }
-        if (inactivityTimerRef.current) {
-          clearTimeout(inactivityTimerRef.current)
-        }
-        if (visibilityTimerRef.current) {
-          clearTimeout(visibilityTimerRef.current)
-        }
-        if (dialogDebounceTimeoutRef.current) {
-          clearTimeout(dialogDebounceTimeoutRef.current)
-        }
+    return () => {
+      if (frameRef.current) {
+        cancelAnimationFrame(frameRef.current)
+      }
+      if (micStreamRef.current) {
+        micStreamRef.current.getTracks().forEach((track) => track.stop())
+      }
+      if (audioContextRef.current && audioContextRef.current.state !== "closed") {
+        audioContextRef.current.close()
+      }
+      if (audioEngineRef.current) {
+        audioEngineRef.current.leaveCall()
+      }
+      if (connectionTimerRef.current) {
+        clearInterval(connectionTimerRef.current)
+      }
+      if (inactivityTimerRef.current) {
+        clearTimeout(inactivityTimerRef.current)
+      }
+      if (visibilityTimerRef.current) {
+        clearTimeout(visibilityTimerRef.current)
+      }
+      if (dialogDebounceTimeoutRef.current) {
+        clearTimeout(dialogDebounceTimeoutRef.current)
       }
     }
-  }, [])
+  }
+}, [])
   
   // Update showTranscript based on connection and transcript content
   useEffect(() => {
@@ -238,26 +240,24 @@ export default function AudioVisualizer() {
 
   // This function would fetch voices from API if needed
   // Currently using our predefined BOT_PERSONAS instead
+     
   const fetchVoices = async () => {
     try {
       setIsLoadingVoices(true)
-
-      const response = await fetch("/api/create-ultravox-call", {
+  
+      const response = await fetch("/api/create-ultravox-call", { // Keep API endpoint the same
         method: "GET",
       })
-
+  
       if (!response.ok) {
-        throw new Error(`Failed to fetch voices: ${response.status}`)
+        throw new Error(`Failed to fetch voice options: ${response.status}`)
       }
-
+  
       const data = await response.json()
       setAvailableVoices(data)
       
-      // We're using our predefined bot personas instead of creating them
-      // from the API response, but you could do that here if needed
-      
     } catch (error) {
-      console.error("Error fetching voices")
+      console.error("Error fetching voice options")
     } finally {
       setIsLoadingVoices(false)
     }
@@ -271,54 +271,53 @@ export default function AudioVisualizer() {
   }, [conversation, transcript])
 
   // Create Ultravox session
-  const createUltravoxSession = async () => {
+  const setupAudioConnection = async () => {
     try {
       setIsLoading(true)
       setErrorMessage(null)
-
+  
       // Find the selected bot
       const botPersona = botPersonas.find((bot) => bot.id === selectedVoice) || botPersonas[0]
-
+  
       // Get any custom greeting from the hook, fallback to the default initial greeting
-      // This allows for custom prompts to override the defaults set in BOT_PERSONAS
-      const customPrompt =  botPersona.initialGreeting;
+      const customPrompt = botPersona.initialGreeting;
       
-      console.log("Creating call with voice:", botPersona.voice)
-
-      const response = await fetch("/api/create-ultravox-call", {
+      console.log("Creating audio connection:", botPersona.voice)
+  
+      const response = await fetch("/api/create-ultravox-call", { // Keep API endpoint the same as requested
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
           systemPrompt: `${botPersona.systemPrompt} 
-
-Initial greeting: ${customPrompt}`,
+  
+  Initial greeting: ${customPrompt}`,
           voice: botPersona.voice,
           temperature: 0.7,
         }),
       })
-
+  
       if (!response.ok) {
         const errorData = await response.json()
-        throw new Error(`Failed to create call: ${response.status}`)
+        throw new Error(`Request failed: ${response.status}`)
       }
-
+  
       const data = await response.json()
-
+  
       if (!data.joinUrl) {
-        throw new Error("Invalid response: missing joinUrl")
+        throw new Error("Invalid response: missing connection URL")
       }
-
-      console.log("Created call with join URL:", data.joinUrl)
-
+  
+      console.log("Connection created successfully")
+  
       setJoinUrl(data.joinUrl)
       setSessionId(data.callId)
-
+  
       return data.joinUrl
     } catch (error) {
-      console.error("Error creating call")
-      setErrorMessage("Failed to create call")
+      console.error("Connection setup failed")
+      setErrorMessage("Failed to create connection")
       setErrorDialogOpen(true)
       setConnectionState(ConnectionState.ERROR)
       return null
@@ -423,14 +422,15 @@ Initial greeting: ${customPrompt}`,
   useEffect(() => {
     if (typeof window === 'undefined') return
 
-    const handleOnline = () => {
-      setIsOnline(true)
-      
-      // If we were previously connected and went offline, try to reconnect
-      if (isConnected && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-        attemptReconnect()
-      }
-    }
+    // Update online handler reference
+const handleOnline = () => {
+  setIsOnline(true)
+  
+  // If we were previously connected and went offline, try to reconnect
+  if (isConnected && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+    tryReconnect()
+  }
+}
 
     const handleOffline = () => {
       setIsOnline(false)
@@ -511,45 +511,46 @@ Initial greeting: ${customPrompt}`,
   }, [isConnected, INACTIVITY_TIMEOUT]) // Only depend on isConnected and constants
   
   // Add this function to attempt reconnection
-  const attemptReconnect = async () => {
-    try {
-      setReconnectAttempts(prev => prev + 1)
-      setConnectionState(ConnectionState.CONNECTING)
-      setConnectionProgress(30)
-      
-      // Clear any previous errors
-      setErrorMessage(null)
-      setErrorDialogOpen(false)
-      
-      // Attempt to rejoin the existing call if we have a join URL
-      if (joinUrl && uvSessionRef.current) {
-        uvSessionRef.current.joinCall(joinUrl)
-        return true
-      } else {
-        // Otherwise create a new session
-        return await initializeUltravoxSession()
-      }
-    } catch (error) {
-      console.error("Error reconnecting:", error)
-      setErrorMessage("Failed to reconnect, please try again.")
-      setErrorDialogOpen(true)
-      setConnectionState(ConnectionState.ERROR)
-      return false
+  // Renamed from attemptReconnect to tryReconnect
+const tryReconnect = async () => {
+  try {
+    setReconnectAttempts(prev => prev + 1)
+    setConnectionState(ConnectionState.CONNECTING)
+    setConnectionProgress(30)
+    
+    // Clear any previous errors
+    setErrorMessage(null)
+    setErrorDialogOpen(false)
+    
+    // Attempt to rejoin the existing call if we have a join URL
+    if (joinUrl && audioEngineRef.current) {
+      audioEngineRef.current.joinCall(joinUrl)
+      return true
+    } else {
+      // Otherwise create a new session
+      return await configureAudioSession()
     }
+  } catch (error) {
+    console.error("Reconnection failed")
+    setErrorMessage("Failed to reconnect, please try again.")
+    setErrorDialogOpen(true)
+    setConnectionState(ConnectionState.ERROR)
+    return false
   }
+}
   
   // Update the endSession function to use the refs for the timer
   const endSession = async () => {
     try {
       // Stop microphone if active
       if (isListening) {
-        stopMicrophone()
+        stopAudioInput()
       }
   
-      // Leave Ultravox call
-      if (uvSessionRef.current) {
-        await uvSessionRef.current.leaveCall()
-        uvSessionRef.current = null
+      // Leave audio call
+      if (audioEngineRef.current) {
+        await audioEngineRef.current.leaveCall()
+        audioEngineRef.current = null
       }
   
       // Reset state
@@ -586,8 +587,8 @@ Initial greeting: ${customPrompt}`,
         dialogDebounceTimeoutRef.current = null
       }
     } catch (error) {
-      console.error("Error ending session:", error)
-      setErrorMessage("Failed to end session")
+      console.error("Disconnection failed")
+      setErrorMessage("Failed to disconnect properly")
       
       // Ensure we don't show multiple dialogs
       if (!isTabSwitchingRef.current) {
@@ -597,181 +598,182 @@ Initial greeting: ${customPrompt}`,
   }
 
   // Initialize and start Ultravox session
-  const initializeUltravoxSession = async () => {
-    try {
-      // Set connection state to CONNECTING
-      setConnectionState(ConnectionState.CONNECTING)
-      setConnectionProgress(0)
+  // Initialize and start audio session
+const configureAudioSession = async () => {
+  try {
+    // Set connection state to CONNECTING
+    setConnectionState(ConnectionState.CONNECTING)
+    setConnectionProgress(0)
 
-      // Start progress animation with improved timing
-      setConnectionProgress(20)
+    // Start progress animation with improved timing
+    setConnectionProgress(20)
 
-      // Then continue with smoother progression
-      connectionTimerRef.current = setInterval(() => {
-        setConnectionProgress((prev) => {
-          if (prev < 40) {
-            // Faster in the beginning (20% to 40%)
-            return Math.min(40, prev + Math.random() * 3 + 1)
-          } else if (prev < 70) {
-            // Medium speed in the middle (40% to 70%)
-            return Math.min(70, prev + Math.random() * 2 + 0.5)
-          } else {
-            // Slow down as we approach 95% (70% to 95%)
-            const remainingPercentage = 95 - prev
-            const increment = Math.max(0.2, remainingPercentage * 0.05)
-            return Math.min(95, prev + increment)
-          }
-        })
-      }, 150)
-
-      // Clean up any existing session
-      if (uvSessionRef.current) {
-        await uvSessionRef.current.leaveCall()
-        uvSessionRef.current = null
-      }
-
-      // Create a new session
-      const url = await createUltravoxSession()
-      if (!url) {
-        if (connectionTimerRef.current) {
-          clearInterval(connectionTimerRef.current)
-          connectionTimerRef.current = null
-        }
-        setConnectionState(ConnectionState.ERROR)
-        return false
-      }
-
-      // Initialize the Ultravox session
-      const session = new UltravoxSession({
-        experimentalMessages: new Set(["debug"]),
-      })
-
-      // Set up event listeners
-      session.addEventListener("status", (event) => {
-        console.log("Session status changed:", session.status)
-        setSessionState(session.status)
-      
-        // Update UI based on status
-        if (
-          session.status === UltravoxSessionStatus.LISTENING ||
-          session.status === UltravoxSessionStatus.THINKING ||
-          session.status === UltravoxSessionStatus.SPEAKING
-        ) {
-          // Successfully connected
-          if (connectionState !== ConnectionState.CONNECTED) {
-            if (connectionTimerRef.current) {
-              clearInterval(connectionTimerRef.current)
-              connectionTimerRef.current = null
-            }
-            setConnectionProgress(100)
-            setConnectionState(ConnectionState.CONNECTED)
-            
-            // Reset reconnection attempts on successful connection
-            setReconnectAttempts(0)
-          }
-      
-          setIsConnected(true)
-          
-          // Set AI speaking state based on status
-          setAiSpeaking(session.status === UltravoxSessionStatus.SPEAKING)
-          
-          // Trigger wave effect when AI starts speaking
-          if (session.status === UltravoxSessionStatus.SPEAKING) {
-            setWaveEffect(true)
-            // Start audio visualization for AI speaking
-            analyzeAudio()
-          } else {
-            setWaveEffect(false)
-          }
-        } else if (session.status === UltravoxSessionStatus.DISCONNECTED) {
-          setIsConnected(false)
-          setAudioLevel(0)
-          setConnectionState(ConnectionState.IDLE)
-          setAiSpeaking(false)
-          setWaveEffect(false)
+    // Then continue with smoother progression
+    connectionTimerRef.current = setInterval(() => {
+      setConnectionProgress((prev) => {
+        if (prev < 40) {
+          // Faster in the beginning (20% to 40%)
+          return Math.min(40, prev + Math.random() * 3 + 1)
+        } else if (prev < 70) {
+          // Medium speed in the middle (40% to 70%)
+          return Math.min(70, prev + Math.random() * 2 + 0.5)
+        } else {
+          // Slow down as we approach 95% (70% to 95%)
+          const remainingPercentage = 95 - prev
+          const increment = Math.max(0.2, remainingPercentage * 0.05)
+          return Math.min(95, prev + increment)
         }
       })
+    }, 150)
 
-      // Set up transcript listener for real-time streaming updates
-      session.addEventListener("transcripts", (event) => {
-        const transcripts = session.transcripts
+    // Clean up any existing session
+    if (audioEngineRef.current) {
+      await audioEngineRef.current.leaveCall()
+      audioEngineRef.current = null
+    }
 
-        if (transcripts.length > 0) {
-          // Find the most recent agent transcript
-          const agentTranscripts = transcripts.filter((t) => t.speaker === "agent")
-
-          if (agentTranscripts.length > 0) {
-            const latestTranscript = agentTranscripts[agentTranscripts.length - 1]
-
-            // Update current transcript for non-final messages
-            if (!latestTranscript.isFinal) {
-              setTranscript(latestTranscript.text)
-            } else {
-              // When final, move to conversation and clear the transcript
-              setConversation((prev) => {
-                // Check if we already have this message to avoid duplicates
-                const exists = prev.some((msg) => msg.role === "assistant" && msg.text === latestTranscript.text)
-
-                if (!exists) {
-                  return [...prev, { role: "assistant", text: latestTranscript.text }]
-                }
-                return prev
-              })
-              setTranscript("")
-            }
-          }
-
-          // Find the most recent user transcript
-          const userTranscripts = transcripts.filter((t) => t.speaker === "user")
-          if (userTranscripts.length > 0) {
-            const latestUserTranscript = userTranscripts[userTranscripts.length - 1]
-            if (latestUserTranscript.isFinal) {
-              setConversation((prev) => {
-                // Check if we already have this message to avoid duplicates
-                const exists = prev.some((msg) => msg.role === "user" && msg.text === latestUserTranscript.text)
-
-                if (!exists) {
-                  return [...prev, { role: "user", text: latestUserTranscript.text }]
-                }
-                return prev
-              })
-            }
-          }
-        }
-      })
-
-      // Set up debug message listener
-      session.addEventListener("experimental_message", (event) => {
-        console.log("Experimental message:", (event as any).message)
-      })
-
-      // Store the session
-      uvSessionRef.current = session
-
-      // Join the call
-      session.joinCall(url)
-
-      return true
-    } catch (error) {
-      console.error("Error initializing  session:")
-      setErrorMessage("Failed to initialize session")
-      setErrorDialogOpen(true)
-      setConnectionState(ConnectionState.ERROR)
-
-      // Clear connection progress timer
+    // Create a new session
+    const url = await setupAudioConnection()
+    if (!url) {
       if (connectionTimerRef.current) {
         clearInterval(connectionTimerRef.current)
         connectionTimerRef.current = null
       }
-
+      setConnectionState(ConnectionState.ERROR)
       return false
     }
-  }
 
-  const handleMicToggle = async () => {
+    // Initialize the audio session
+    const session = new AudioSession({
+      experimentalMessages: new Set(["debug"]),
+    })
+
+    // Set up event listeners
+    session.addEventListener("status", (event) => {
+      console.log("Connection status updated:", session.status)
+      setSessionState(session.status)
+    
+      // Update UI based on status
+      if (
+        session.status === AudioStatus.LISTENING ||
+        session.status === AudioStatus.THINKING ||
+        session.status === AudioStatus.SPEAKING
+      ) {
+        // Successfully connected
+        if (connectionState !== ConnectionState.CONNECTED) {
+          if (connectionTimerRef.current) {
+            clearInterval(connectionTimerRef.current)
+            connectionTimerRef.current = null
+          }
+          setConnectionProgress(100)
+          setConnectionState(ConnectionState.CONNECTED)
+          
+          // Reset reconnection attempts on successful connection
+          setReconnectAttempts(0)
+        }
+    
+        setIsConnected(true)
+        
+        // Set AI speaking state based on status
+        setAiSpeaking(session.status === AudioStatus.SPEAKING)
+        
+        // Trigger wave effect when AI starts speaking
+        if (session.status === AudioStatus.SPEAKING) {
+          setWaveEffect(true)
+          // Start audio visualization for AI speaking
+          analyzeAudio()
+        } else {
+          setWaveEffect(false)
+        }
+      } else if (session.status === AudioStatus.DISCONNECTED) {
+        setIsConnected(false)
+        setAudioLevel(0)
+        setConnectionState(ConnectionState.IDLE)
+        setAiSpeaking(false)
+        setWaveEffect(false)
+      }
+    })
+
+    // Set up transcript listener for real-time streaming updates
+    session.addEventListener("transcripts", (event) => {
+      const transcripts = session.transcripts
+
+      if (transcripts.length > 0) {
+        // Find the most recent agent transcript
+        const agentTranscripts = transcripts.filter((t) => t.speaker === "agent")
+
+        if (agentTranscripts.length > 0) {
+          const latestTranscript = agentTranscripts[agentTranscripts.length - 1]
+
+          // Update current transcript for non-final messages
+          if (!latestTranscript.isFinal) {
+            setTranscript(latestTranscript.text)
+          } else {
+            // When final, move to conversation and clear the transcript
+            setConversation((prev) => {
+              // Check if we already have this message to avoid duplicates
+              const exists = prev.some((msg) => msg.role === "assistant" && msg.text === latestTranscript.text)
+
+              if (!exists) {
+                return [...prev, { role: "assistant", text: latestTranscript.text }]
+              }
+              return prev
+            })
+            setTranscript("")
+          }
+        }
+
+        // Find the most recent user transcript
+        const userTranscripts = transcripts.filter((t) => t.speaker === "user")
+        if (userTranscripts.length > 0) {
+          const latestUserTranscript = userTranscripts[userTranscripts.length - 1]
+          if (latestUserTranscript.isFinal) {
+            setConversation((prev) => {
+              // Check if we already have this message to avoid duplicates
+              const exists = prev.some((msg) => msg.role === "user" && msg.text === latestUserTranscript.text)
+
+              if (!exists) {
+                return [...prev, { role: "user", text: latestUserTranscript.text }]
+              }
+              return prev
+            })
+          }
+        }
+      }
+    })
+
+    // Set up debug message listener
+    session.addEventListener("experimental_message", (event) => {
+      console.log("Debug message:", (event as any).message)
+    })
+
+    // Store the session
+    audioEngineRef.current = session
+
+    // Join the call
+    session.joinCall(url)
+
+    return true
+  } catch (error) {
+    console.error("Connection initialization failed")
+    setErrorMessage("Failed to initialize audio connection")
+    setErrorDialogOpen(true)
+    setConnectionState(ConnectionState.ERROR)
+
+    // Clear connection progress timer
+    if (connectionTimerRef.current) {
+      clearInterval(connectionTimerRef.current)
+      connectionTimerRef.current = null
+    }
+
+    return false
+  }
+}
+
+  const toggleMicrophone = async () => {
     if (!isConnected) {
       // Start a new session
-      await startMicrophone()
+      await startAudioInput()
     }
   }
 
@@ -797,7 +799,7 @@ Initial greeting: ${customPrompt}`,
     const handleRetry = async () => {
       setLocalDialogOpen(false);
       setErrorDialogOpen(false);
-      await attemptReconnect();
+      await tryReconnect();
     };
     
     return (
@@ -833,13 +835,13 @@ Initial greeting: ${customPrompt}`,
     );
   };
 
-  const startMicrophone = async () => {
+  const startAudioInput = async () => {
     try {
       // Resume audio context if suspended
       if (audioContextRef.current?.state === "suspended") {
         await audioContextRef.current.resume()
       }
-
+  
       // Request microphone access
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -851,58 +853,59 @@ Initial greeting: ${customPrompt}`,
         },
         video: false,
       })
-
+  
       micStreamRef.current = stream
-
+  
       if (!audioContextRef.current || !analyserRef.current) {
         throw new Error("Audio context not initialized")
       }
-
+  
       const source = audioContextRef.current.createMediaStreamSource(stream)
       source.connect(analyserRef.current)
-
-      // If not connected to Ultravox, initialize
-      if (!uvSessionRef.current || uvSessionRef.current.status === UltravoxSessionStatus.DISCONNECTED) {
-        const success = await initializeUltravoxSession()
+  
+      // If not connected, initialize
+      if (!audioEngineRef.current || audioEngineRef.current.status === AudioStatus.DISCONNECTED) {
+        const success = await configureAudioSession()
         if (!success) {
-          throw new Error("Failed to initialize session")
+          throw new Error("Failed to initialize audio service")
         }
       } else {
         // If in IDLE state, ensure microphone is unmuted
-        if (uvSessionRef.current.isMicMuted) {
-          uvSessionRef.current.unmuteMic()
+        if (audioEngineRef.current.isMicMuted) {
+          audioEngineRef.current.unmuteMic()
         }
       }
-
+  
       setIsListening(true)
-
+  
       analyzeAudio()
     } catch (error) {
-      console.error("Error accessing microphone:")
-      setErrorMessage( "Failed to access microphone")
+      console.error("Failed to access microphone")
+      setErrorMessage("Failed to access microphone")
       setErrorDialogOpen(true)
       setConnectionState(ConnectionState.ERROR)
     }
   }
+  
 
-  const stopMicrophone = () => {
+  const stopAudioInput = () => {
     if (micStreamRef.current) {
       micStreamRef.current.getTracks().forEach((track) => track.stop())
       micStreamRef.current = null
     }
-
-    // Mute microphone in Ultravox session if connected
+  
+    // Mute microphone in session if connected
     if (
-      uvSessionRef.current &&
-      uvSessionRef.current.status !== UltravoxSessionStatus.DISCONNECTED &&
-      !uvSessionRef.current.isMicMuted
+      audioEngineRef.current &&
+      audioEngineRef.current.status !== AudioStatus.DISCONNECTED &&
+      !audioEngineRef.current.isMicMuted
     ) {
-      uvSessionRef.current.muteMic()
+      audioEngineRef.current.muteMic()
     }
-
+  
     setIsListening(false)
     setAudioLevel(0)
-
+  
     if (frameRef.current) {
       cancelAnimationFrame(frameRef.current)
       frameRef.current = null
@@ -954,7 +957,7 @@ Initial greeting: ${customPrompt}`,
 
       // Small delay to ensure everything is cleaned up
       setTimeout(async () => {
-        await startMicrophone()
+        await startAudioInput()
       }, 500)
     }
   }
@@ -1240,35 +1243,35 @@ Initial greeting: ${customPrompt}`,
                 
           {/* Control Button */}
           <div className="flex w-full justify-center">
-            <Button
-              onClick={isConnected ? endSession : handleMicToggle}
-              variant={isConnected ? "destructive" : "default"}
-              className={`flex-1 py-5 ${
-                isConnected 
-                  ? "bg-red-500 hover:bg-red-700" 
-                  : connectionState === ConnectionState.CONNECTING
-                    ? "bg-emerald-500 hover:bg-emerald-600"
-                    : "bg-emerald-500 hover:bg-emerald-600"
-              }`}
-              disabled={connectionState === ConnectionState.CONNECTING}
-            >
-              {connectionState === ConnectionState.CONNECTING ? (
-                <>
-                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                  Connecting...
-                </>
-              ) : isConnected ? (
-                <>
-                  <X className="mr-2" size={20} />
-                  Stop Session
-                </>
-              ) : (
-                <>
-                  <Play className="mr-2" size={20} />
-                  Start Session
-                </>
-              )}
-            </Button>
+          <Button
+  onClick={isConnected ? endSession : toggleMicrophone}
+  variant={isConnected ? "destructive" : "default"}
+  className={`flex-1 py-5 ${
+    isConnected 
+      ? "bg-red-500 hover:bg-red-700" 
+      : connectionState === ConnectionState.CONNECTING
+        ? "bg-emerald-500 hover:bg-emerald-600"
+        : "bg-emerald-500 hover:bg-emerald-600"
+  }`}
+  disabled={connectionState === ConnectionState.CONNECTING}
+>
+  {connectionState === ConnectionState.CONNECTING ? (
+    <>
+      <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+      Connecting...
+    </>
+  ) : isConnected ? (
+    <>
+      <X className="mr-2" size={20} />
+      Stop Session
+    </>
+  ) : (
+    <>
+      <Play className="mr-2" size={20} />
+      Start Session
+    </>
+  )}
+</Button>
           </div>
         </CardContent>
       </Card>
