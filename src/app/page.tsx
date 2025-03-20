@@ -327,6 +327,7 @@ useEffect(() => {
       return data.joinUrl
     } catch (error) {
       // Handle specific error types
+      // console.log(error)
       if (error instanceof Error) {
         if (error.message === "INVALID_TOKEN") {
           console.error("Invalid session token")
@@ -917,7 +918,7 @@ const configureAudioSession = async () => {
   } catch (error) {
     // Only set a new error message if one wasn't already set by configureAudioSession
     if (!errorMessage || !errorDialogOpen) {
-      console.log(error)
+      // console.log(errorMessage)
       console.error("Failed to access microphone")
       setErrorMessage(error instanceof Error ? error.message : String(error))
       setErrorDialogOpen(true)
