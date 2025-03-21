@@ -39,9 +39,8 @@ export default function LoginPage() {
 
     // Check against hardcoded credentials
     if (username === VALID_CREDENTIALS.username && password === VALID_CREDENTIALS.password) {
-      // Just call login and redirect
-      login()
-      router.push("/")
+      login(); // This now handles setting localStorage
+      router.push("/");
     } else {
       setError("Invalid username or password")
       setIsLoading(false)

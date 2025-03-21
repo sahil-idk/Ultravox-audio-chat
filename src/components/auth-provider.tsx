@@ -1,4 +1,4 @@
-// src/components/auth-provider.tsx
+// src/components/auth-provider.tsx - simplified version
 "use client"
 
 import { createContext, useContext, useState, useEffect } from "react"
@@ -34,17 +34,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     router.push("/login")
   }
 
-  // Move navigation logic to useEffect
+  // Check if we should render the children or redirect
+  const shouldRenderChildren = isAuthenticated || pathname === "/login"
+
+  // If not on login page and not authenticated, redirect to login
   useEffect(() => {
-    // If not authenticated and not on login page, redirect to login
     if (!isAuthenticated && pathname !== "/login") {
       router.push("/login")
     }
   }, [isAuthenticated, pathname, router])
 
+  // Only render children if authenticated or on login page
   return (
     <AuthContext.Provider value={{ isAuthenticated, login, logout }}>
-      {children}
+      {shouldRenderChildren ? children : null}
     </AuthContext.Provider>
   )
 }
